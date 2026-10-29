@@ -91,6 +91,7 @@ class MainActivity : AppCompatActivity() {
             if (isChecked) {
                 source = if (checkedId == R.id.btnPhone) "phone" else "gateway"
                 spark.clear()
+                buildTiles()
             }
         }
         findViewById<MaterialSwitch>(R.id.logSwitch).setOnCheckedChangeListener { _, on ->
@@ -115,6 +116,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 location.start()
+                phone.start()
                 try {
                     while (isActive) {
                         val raw = if (source == "gateway") gateway.fetch(label) else phone.fetch(label)
@@ -130,6 +132,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 } finally {
                     location.stop()
+                    phone.stop()
                 }
             }
         }
@@ -144,12 +147,12 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ tiles
     private fun tile(key: String): TileView = tiles.getOrPut(key) { TileView(this) }
 
-    private fun grid(container: LinearLayout, keys: List<String>) {
+    private fun grid(container: LinearLayout, keys: List<String>, cols: Int = columns, height: Int = 76) {
         container.removeAllViews()
         val d = resources.displayMetrics.density
         var row: LinearLayout? = null
         for ((i, key) in keys.withIndex()) {
-            if (i % columns == 0) {
+            if (i % cols == 0) {
                 row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (6 * d).toInt() }
@@ -158,19 +161,22 @@ class MainActivity : AppCompatActivity() {
             }
             val t = tile(key)
             (t.parent as? ViewGroup)?.removeView(t)
-            t.layoutParams = LinearLayout.LayoutParams(0, (76 * d).toInt(), 1f).apply { marginEnd = if ((i + 1) % columns == 0) 0 else (6 * d).toInt() }
+            val lastInRow = (i + 1) % cols == 0 || i == keys.size - 1
+            t.layoutParams = LinearLayout.LayoutParams(0, (height * d).toInt(), 1f).apply { marginEnd = if (lastInRow) 0 else (6 * d).toInt() }
             row!!.addView(t)
         }
-        // pad the last row so tiles keep equal width
-        val rem = keys.size % columns
-        if (rem != 0) for (k in rem until columns) row!!.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
+        // an orphan on the last row stretches across; no empty spacers
     }
 
     private fun buildTiles() {
-        columns = if (resources.configuration.screenWidthDp >= 600) 4 else 3
-        grid(tilesSignal, listOf("rsrp", "sinr", "rsrq", "rssi"))
-        grid(tilesCell, listOf("tech", "band", "pci", "cell", "tac", "arfcn", "bw", "operator", "apn", "wan"))
-        grid(tilesLte, listOf("lband", "lpci", "lcell", "lrsrp", "lrsrq", "lsnr", "learfcn"))
+        val wide = resources.configuration.screenWidthDp >= 600
+        columns = if (wide) 4 else 3
+        grid(tilesSignal, listOf("rsrp", "sinr", "rsrq", "rssi"), cols = if (wide) 4 else 2, height = 88)
+        if (source == "gateway")
+            grid(tilesCell, listOf("tech", "band", "pci", "cell", "tac", "arfcn", "bw", "apn", "wan"))
+        else
+            grid(tilesCell, listOf("tech", "band", "pci", "cell", "tac", "arfcn", "bw", "level", "operator"))
+        grid(tilesLte, listOf("lband", "lpci", "lcell", "lrsrp", "lrsrq", "lsnr", "learfcn"), height = 64)
     }
 
     private fun render(s: Sample) {
@@ -181,15 +187,23 @@ class MainActivity : AppCompatActivity() {
             status.text = ""
             return
         }
-        val (v, col) = Thresholds.verdict(s.rsrp, s.sinr)
+        // Big tiles: NR values when present, else the LTE serving cell (phone on LTE)
+        val useLte = s.rsrp == null && s.lteRsrp != null
+        val rsrp = if (useLte) s.lteRsrp else s.rsrp
+        val sinr = if (useLte) s.lteRssnr else s.sinr
+        val rsrq = if (useLte) s.lteRsrq else s.rsrq
+        val tag = if (useLte) " (LTE)" else if (s.source == "phone" && s.rsrp != null) " (NR)" else ""
+        val (v, col) = Thresholds.verdict(rsrp, sinr)
         val bars = when (v) { "EXCELLENT" -> 5; "GOOD" -> 4; "FAIR" -> 3; "POOR" -> 2; "INTERFERENCE" -> 1; else -> 0 }
         val where = if (label.isNotEmpty()) "at $label" else "no location label"
-        verdict.set(v, col, bars, "${s.source.replaceFirstChar { it.uppercase() }} · ${s.tech.ifEmpty { "-" }} · $where")
+        val op = if (s.operator.isNotEmpty()) " · ${s.operator}" else ""
+        verdict.set(v, col, bars, "${s.source.replaceFirstChar { it.uppercase() }} · ${s.tech.ifEmpty { "-" }}$op · $where")
 
-        tile("rsrp").set("RSRP", s.rsrp?.toString() ?: "-", "dBm", Thresholds.rsrp(s.rsrp), Thresholds.frac(s.rsrp, -120, -60))
-        tile("sinr").set("SINR", s.sinr?.toString() ?: "-", "dB", Thresholds.sinr(s.sinr), Thresholds.frac(s.sinr, -5, 30))
-        tile("rsrq").set("RSRQ", s.rsrq?.toString() ?: "-", "dB", Thresholds.rsrq(s.rsrq), Thresholds.frac(s.rsrq, -20, -3))
+        tile("rsrp").set("RSRP$tag", rsrp?.toString() ?: "-", "dBm", Thresholds.rsrp(rsrp), Thresholds.frac(rsrp, -120, -60))
+        tile("sinr").set("SINR$tag", sinr?.toString() ?: "-", "dB", Thresholds.sinr(sinr), Thresholds.frac(sinr, -5, 30))
+        tile("rsrq").set("RSRQ$tag", rsrq?.toString() ?: "-", "dB", Thresholds.rsrq(rsrq), Thresholds.frac(rsrq, -20, -3))
         tile("rssi").set("RSSI", s.rssi?.toString() ?: "-", "dBm", Thresholds.rssi(s.rssi), Thresholds.frac(s.rssi, -100, -50))
+        tile("level").set("ANDROID LEVEL", s.level?.let { "$it / 4" } ?: "-", "", when (s.level) { 4 -> Thresholds.GREEN; 3 -> Thresholds.LIME; 2 -> Thresholds.AMBER; null -> Thresholds.MUTED; else -> Thresholds.RED }, big = false)
 
         tile("tech").set("TECH", s.tech.ifEmpty { "-" }, "", Thresholds.CYAN, big = false)
         tile("band").set("BAND", s.band.ifEmpty { "-" }, "", Thresholds.CYAN, big = false)
@@ -202,7 +216,7 @@ class MainActivity : AppCompatActivity() {
         tile("apn").set("APN", s.apn.ifEmpty { "-" }, "", Thresholds.AMBER, big = false)
         tile("wan").set("WAN IP", s.wanIp.ifEmpty { "-" }, "", Thresholds.MUTED, big = false)
 
-        val hasLte = s.lteBand.isNotEmpty() || s.lteRsrp != null || s.ltePci != null
+        val hasLte = (s.lteBand.isNotEmpty() || s.lteRsrp != null || s.ltePci != null) && !useLte
         sectionLte.visibility = if (hasLte) View.VISIBLE else View.GONE
         tilesLte.visibility = if (hasLte) View.VISIBLE else View.GONE
         if (hasLte) {
@@ -215,7 +229,7 @@ class MainActivity : AppCompatActivity() {
             tile("learfcn").set("EARFCN", s.lteEarfcn?.toString() ?: "-", "", Thresholds.MUTED, big = false)
         }
 
-        spark.push(s.rsrp, s.sinr)
+        spark.push(rsrp, sinr)
         val gps = if (s.lat != null) "GPS %.5f, %.5f (±%.0f m)".format(s.lat, s.lon, s.accuracyM ?: 0f) else "GPS: no fix yet"
         status.text = "$gps   ·   ${s.time.substring(11, 19)}"
     }

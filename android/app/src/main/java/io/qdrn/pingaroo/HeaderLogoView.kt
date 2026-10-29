@@ -10,6 +10,15 @@ import android.view.View
 /** Small pixel kangaroo + pixel title for the main screen header. */
 class HeaderLogoView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = null) : View(ctx, attrs) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val h = (34 * resources.displayMetrics.density).toInt()
+        val scale = h.toFloat() / PixelArt.KANGAROO_H
+        val ts = (h / 7f) * 0.72f
+        val w = (PixelArt.KANGAROO_W * scale + 8f + PixelArt.textWidth("PINGAROO", ts) + 4f).toInt()
+        setMeasuredDimension(resolveSize(w, widthMeasureSpec), resolveSize(h, heightMeasureSpec))
+    }
+
     override fun onDraw(c: Canvas) {
         val h = height.toFloat()
         val scale = h / PixelArt.KANGAROO_H
