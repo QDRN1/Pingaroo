@@ -1,6 +1,6 @@
 {
-  "versionCode": 3,
-  "versionName": "1.2",
+  "versionCode": 4,
+  "versionName": "1.3",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "In-app updates, launch crash fix, 8-bit boot screen, colour tiles, snapshots."
+  "notes": "Samsung 5G NSA readings, LTE fallback, layout fixes, in-app updates"
 }
