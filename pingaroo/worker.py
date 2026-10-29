@@ -87,6 +87,7 @@ class WorkerState:
         self.switching = ""                      # "" | "home" | "test" while a manual switch runs
         self.switch_note = ""
         self.interval_s = 300.0
+        self.active_target = "test"              # which network the loop tests: "test" | "home"
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -121,6 +122,7 @@ class WorkerState:
                 "switching": self.switching,
                 "switch_note": self.switch_note,
                 "interval_s": self.interval_s,
+                "active_target": self.active_target,
             }
 
 
@@ -186,9 +188,38 @@ class Worker:
         with self.state.lock:
             self.state.label_override = label
 
+    @property
+    def interval_s(self) -> float:
+        return self.state.interval_s
+
+    def active_net(self) -> tuple[str, str]:
+        """(ssid, profile) for the network currently under test."""
+        w = self.cfg["wifi"]
+        if self.state.active_target == "home" and w.get("home_profile"):
+            return (w.get("home_ssid") or w["home_profile"], w["home_profile"])
+        return (w["ssid"], w["connection_name"])
+
+    def set_interval(self, seconds: float) -> None:
+        """Change the completion-to-next-start interval, effective immediately.
+        If the loop is in its wait, the current countdown is rebased to the new value."""
+        with self.state.lock:
+            old = self.state.interval_s
+            self.state.interval_s = float(seconds)
+            if self.state.phase == Phase.WAITING and self.state.next_start_mono is not None:
+                self.state.next_start_mono = self.state.next_start_mono - old + float(seconds)
+        try:
+            if self.cfg.get("_path"):
+                config_mod.set_value(self.cfg["_path"], "app", "interval_seconds", int(seconds))
+        except Exception:
+            pass
+        self.cfg["app"]["interval_seconds"] = int(seconds)
+        self.storage.write_event("interval_changed", seconds=int(seconds), source="ui")
+        self.cancel.wait(0)  # no-op; wait loop re-reads next_start_mono
+
     def switch_network(self, target: str) -> bool:
-        """Manual switch of the radio: 'home' (management Wi-Fi, stops the loop) or
-        'test' (the router under test).  Runs in a thread; returns False if busy."""
+        """Toggle which network the loop tests: 'home' or 'test'.  The loop keeps
+        running and tests the newly selected network; the radio is reconnected to it.
+        Runs in a thread; returns False if busy or the target is not configured."""
         wcfg = self.cfg["wifi"]
         profile = wcfg["home_profile"] if target == "home" else wcfg["connection_name"]
         if not profile:
@@ -198,10 +229,12 @@ class Worker:
         with self.state.lock:
             if self.state.switching:
                 return False
+            self.state.active_target = target
             self.state.switching = target
             self.state.switch_note = f"switching to {profile}"
-        if target == "home":
-            self.stop_session()
+            # interrupt a wait so the next cycle starts on the new network promptly
+            if self.state.phase == Phase.WAITING and self.state.next_start_mono is not None:
+                self.state.next_start_mono = time.monotonic()
 
         def _go():
             try:
@@ -257,7 +290,6 @@ class Worker:
             raise
 
     def _run_session(self) -> None:
-        interval = float(self.cfg["app"]["interval_seconds"])
         while True:
             with self.state.lock:
                 if not self.state.running or self._shutdown:
@@ -267,9 +299,18 @@ class Worker:
                 if not self.state.running or self._shutdown:
                     break
                 self.state.phase = Phase.WAITING
-                self.state.next_start_mono = end_mono + interval
-            # Wait exactly `interval` seconds after the attempt ended, Stop-aware.
-            self.cancel.wait(max(0.0, end_mono + interval - time.monotonic()))
+                self.state.next_start_mono = end_mono + self.state.interval_s
+            # Wait until next_start_mono, re-checking so a live interval change applies.
+            while True:
+                with self.state.lock:
+                    target = self.state.next_start_mono
+                    running = self.state.running
+                if not running or self._shutdown or target is None:
+                    break
+                remaining = target - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.cancel.wait(min(remaining, 0.5))
             with self.state.lock:
                 self.state.next_start_mono = None
                 if not self.state.running:
@@ -295,7 +336,7 @@ class Worker:
         """Run one attempt.  Returns the monotonic time the attempt ended."""
         st = self.state
         cfg = self.cfg
-        ssid = cfg["wifi"]["ssid"]
+        ssid, profile = self.active_net()
         iface = st.interface
         t0 = time.monotonic()
         start_iso = clock.iso()
@@ -372,7 +413,7 @@ class Worker:
         if not wstate.connected:
             if self.cancel.cancelled:
                 return interrupted("wifi")
-            ok, wstate, err = self.backend.connect(cfg, iface, self.cancel)
+            ok, wstate, err = self.backend.connect(cfg, iface, self.cancel, ssid=ssid, profile=profile)
             self._store_wifi(wstate)
             if self.cancel.cancelled:
                 return interrupted("wifi")

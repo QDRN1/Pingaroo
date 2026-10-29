@@ -222,15 +222,18 @@ the age of the last check; download / upload / speed-test idle latency; during a
 test the active value goes live in amber with a progress bar and percentage; phase
 with a spinner, countdown (MM:SS) and a countdown bar during the wait; session
 counters; last-result timestamp or last error; a large Start Test / Stop Testing
-button and a Details button. Old measurements are greyed and labelled "previous
-result" while a new test runs. Taps act on press, so a button responds the moment the
-finger lands on it.
+button, a Cycle button showing the current interval, and a Details button. Tap Cycle
+to step the interval through 30s, 1m, 5m, 15m, 30m, applied immediately. Old
+measurements are greyed and labelled "previous result" while a new test runs. Taps
+act on press, so a button responds the moment the finger lands on it.
 
 Details view: Wi-Fi link (SSID, BSSID, dBm, band, channel, link rate), IP, gateway,
 router DNS, public IP, cellular data from the router when an adapter is configured,
 per-target ping, DNS and HTTPS outcomes, speed-test server, jitter and loss, session
 timing and counters, recorded test traffic, disk space, device and config paths.
-Back, Up, Down, Next Label and Home Wi-Fi / Test Wi-Fi buttons.
+Back, Up, Down, Next Label and a Home Wi-Fi / Test Wi-Fi toggle. The toggle switches
+which network the loop tests, between the router under test and the home network,
+without stopping the loop.
 
 The screen sleeps after 120 s without a touch (configurable, `0` disables). The first
 touch only wakes it. Testing, logging and Wi-Fi are unaffected by sleep. If the panel

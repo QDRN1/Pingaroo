@@ -96,7 +96,7 @@ class FakeBackend(Backend):
         self.calls.append("wifi_state")
         return copy.deepcopy(self._next(self.states))
 
-    def connect(self, cfg, interface, cancel: CancelToken):
+    def connect(self, cfg, interface, cancel: CancelToken, ssid=None, profile=None):
         self.calls.append("connect")
         if self.connect_delay and cancel.wait(self.connect_delay):
             return False, disconnected_state(), "interrupted"

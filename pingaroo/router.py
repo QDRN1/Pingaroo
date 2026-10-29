@@ -13,6 +13,7 @@ JSONL detail for every cycle so unmapped values are not lost.
 from __future__ import annotations
 
 import base64
+import hashlib
 import http.cookiejar
 import json
 import os
@@ -88,6 +89,8 @@ class HttpJsonRouter:
     def login(self) -> str:
         c = self.cfg
         password = read_secret(c["password_file"])
+        if c.get("password_hash") == "sha256" and password and not (len(password) == 64 and all(ch in "0123456789abcdef" for ch in password.lower())):
+            password = hashlib.sha256(password.encode()).hexdigest()
         if c["login_method"] == "basic":
             token = base64.b64encode(f"{c['username']}:{password}".encode()).decode()
             self.headers["Authorization"] = f"Basic {token}"
@@ -101,14 +104,25 @@ class HttpJsonRouter:
         for k, v in fields.items():
             if k not in ("username", "password"):
                 payload[k] = v
-        if c["login_method"] == "json":
+        if c["login_method"] == "ncm" and "token" not in payload:
+            payload["token"] = ""
+        if c["login_method"] in ("json", "ncm"):
             body = json.dumps(payload).encode()
-            status, raw = self._request(c["login_path"], body, {"Content-Type": "application/json"})
+            status, raw = self._request(c["login_path"], body,
+                                        {"Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest"})
         else:
             body = urllib.parse.urlencode(payload).encode()
             status, raw = self._request(c["login_path"], body, {"Content-Type": "application/x-www-form-urlencoded"})
         if status >= 400:
             return f"login HTTP {status}"
+        # Routers that answer 200 with a JSON success/failure flag (e.g. AT&T NCM1120).
+        try:
+            jd = json.loads(raw.decode("utf-8", "replace"))
+            if isinstance(jd, dict):
+                if jd.get("Success") is False or str(jd.get("Login", "1")) in ("0", "False", "false"):
+                    return "login rejected (wrong password?)"
+        except ValueError:
+            pass
         # Some firmwares return a token in JSON; keep it as a bearer header if present.
         try:
             data = json.loads(raw.decode("utf-8", "replace"))

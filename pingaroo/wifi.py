@@ -36,15 +36,15 @@ def explain_nmcli_error(text: str) -> str:
 
 
 def connect(cfg: dict, interface: str, cancel: CancelToken,
-            timeout: float | None = None) -> tuple[bool, netinfo.WifiState, str]:
-    """Bring the configured profile up on `interface` and wait for an IPv4 address.
-
-    Returns (ok, state, error).  A single attempt, bounded by timeout.
+            timeout: float | None = None, ssid: str | None = None,
+            profile: str | None = None) -> tuple[bool, netinfo.WifiState, str]:
+    """Bring the given (or configured) profile up on `interface` and wait for an IPv4
+    address.  Returns (ok, state, error).  A single attempt, bounded by timeout.
     """
     wcfg = cfg["wifi"]
     timeout = timeout or float(wcfg["connect_timeout_seconds"])
-    ssid = wcfg["ssid"]
-    name = wcfg["connection_name"]
+    ssid = ssid or wcfg["ssid"]
+    name = profile or wcfg["connection_name"]
     deadline = time.monotonic() + timeout
 
     if name not in netinfo.connection_profiles():

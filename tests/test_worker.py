@@ -232,6 +232,41 @@ class Scheduling(unittest.TestCase):
             h.close()
 
 
+class IntervalChange(unittest.TestCase):
+    def test_set_interval_live_rebases_wait(self):
+        b = FakeBackend()
+        cfg = test_config()
+        cfg["app"]["interval_seconds"] = 60
+        h = WorkerHarness(b, cfg)
+        try:
+            h.worker.start_session()
+            self.assertTrue(wait_until(lambda: h.state.phase == Phase.WAITING, 5))
+            cd1 = h.state.snapshot()["countdown_s"]
+            self.assertGreater(cd1, 30)
+            h.worker.set_interval(30)
+            cd2 = h.state.snapshot()["countdown_s"]
+            self.assertLessEqual(cd2, 31)
+            self.assertEqual(h.state.snapshot()["interval_s"], 30)
+            kinds = [e["event"] for e in h.events()]
+            self.assertIn("interval_changed", kinds)
+        finally:
+            h.close()
+
+    def test_shorter_interval_triggers_next_cycle_sooner(self):
+        b = FakeBackend()
+        cfg = test_config()
+        cfg["app"]["interval_seconds"] = 300
+        h = WorkerHarness(b, cfg)
+        try:
+            h.worker.start_session()
+            self.assertTrue(wait_until(lambda: h.state.phase == Phase.WAITING, 5))
+            h.worker.set_interval(30)
+            # with a 30s interval and ~0s elapsed, it should still be waiting, not overlapping
+            self.assertEqual(b.max_speed_active, 1)
+        finally:
+            h.close()
+
+
 class StartStop(unittest.TestCase):
     def test_duplicate_start_rejected(self):
         h = WorkerHarness(FakeBackend())
@@ -368,7 +403,7 @@ if __name__ == "__main__":
 
 
 class NetworkSwitch(unittest.TestCase):
-    def test_switch_home_stops_loop_and_activates_profile(self):
+    def test_switch_toggles_target_without_stopping(self):
         b = FakeBackend()
         cfg = test_config()
         cfg["wifi"]["home_profile"] = "preconfigured"
@@ -377,14 +412,31 @@ class NetworkSwitch(unittest.TestCase):
         try:
             h.worker.start_session()
             self.assertTrue(wait_until(lambda: h.state.phase == Phase.WAITING, 5))
+            self.assertEqual(h.state.active_target, "test")
             self.assertTrue(h.worker.switch_network("home"))
             self.assertTrue(wait_until(lambda: "activate:preconfigured" in b.calls, 5))
             self.assertTrue(wait_until(lambda: not h.state.switching, 5))
-            self.assertFalse(h.state.running)
+            self.assertTrue(h.state.running, "toggling network must not stop the loop")
+            self.assertEqual(h.state.active_target, "home")
             self.assertTrue(h.worker.switch_network("test"))
             self.assertTrue(wait_until(lambda: "activate:Kangaroo Labs" in b.calls, 5))
-            self.assertTrue(wait_until(lambda: not h.state.switching, 5))
-            self.assertTrue(wait_until(lambda: [e["event"] for e in h.events()].count("network_switch") == 2, 5))
+            self.assertTrue(wait_until(lambda: h.state.active_target == "test" and not h.state.switching, 5))
+        finally:
+            h.close()
+
+    def test_loop_tests_active_target_network(self):
+        b = FakeBackend()
+        b.states = [disconnected_state()]
+        b.connect_results = [(True, connected_state(ssid="LAN Down Under", ip="192.168.7.11"), "")]
+        cfg = test_config()
+        cfg["wifi"]["home_profile"] = "preconfigured"
+        cfg["wifi"]["home_ssid"] = "LAN Down Under"
+        h = WorkerHarness(b, cfg)
+        try:
+            h.state.active_target = "home"
+            h.worker.start_session()
+            self.assertTrue(wait_until(lambda: len(h.rows()) >= 1, 5))
+            self.assertEqual(h.rows()[0]["ssid"], "LAN Down Under")
         finally:
             h.close()
 

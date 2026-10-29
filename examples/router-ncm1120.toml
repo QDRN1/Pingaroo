@@ -1,0 +1,47 @@
+# AT&T Internet Air for Business 5G Gateway (NCM1120D2-D323) router adapter.
+# Merge this [router] section into /etc/pingaroo/config.toml, then:
+#   sudo pingaroo router-password      # paste the gateway admin password (plaintext)
+#   sudo systemctl restart pingaroo
+# Discovered from the gateway web UI (firmware 254311.SDK3.0.2). The admin page is
+# only reachable while the Pi is on the 2.4 GHz radio of the gateway's Wi-Fi; the
+# 5 GHz side blocks management traffic on this unit.
+
+[router]
+type = "http_json"
+base_url = "http://192.168.1.1"
+username = "attadmin"
+password_file = "/etc/pingaroo/router.secret"
+login_path = "/cgi-bin/Login"
+login_method = "ncm"           # POST JSON {UserName, Password, token}; 200 with {"Success":true}
+password_hash = "sha256"       # the UI sends SHA-256 of the admin password
+login_fields = { username = "UserName", password = "Password" }
+status_paths = [
+  "/cgi-bin/GetENDCInfo",        # 5G NR: band, rsrp, rsrq, snr, rssi, pci, tac, gci (cell id)
+  "/cgi-bin/GetLTEStatus",       # operator, net_type, imei, imsi, iccid, sku
+  "/cgi-bin/GetLTEBasicSetting", # APN name, auth type, pdp type
+  "/cgi-bin/GetWanIp",           # ConnIP (cellular WAN IP)
+  "/cgi-bin/GetNvInfo",          # firmware, product id, uptime, conn type
+  "/cgi-bin/GetStatistic",       # data volume counters
+]
+timeout_seconds = 8
+
+[router.fields]
+cell_carrier       = "operator"
+cell_technology    = "net_type"
+cell_apn           = "APN_Name"
+cell_ip            = "ConnIP"
+cell_imei          = "imei"
+cell_imsi          = "imsi"
+cell_iccid         = "iccid"
+cell_firmware      = "FwFullver"
+cell_uptime        = "Uptime"
+cell_5g_band       = "nrband"
+cell_5g_rsrp       = "nr5g_rsrp"
+cell_5g_rsrq       = "nr5g_rsrq"
+cell_5g_sinr       = "nr5g_snr"
+cell_5g_pci        = "nr5g_pci"
+cell_rssi          = "nr5g_rssi"
+cell_pci           = "nr5g_pci"
+cell_tac           = "nr5g_tac"
+cell_cell_id       = "nr5g_gci"
+cell_bandwidth_mhz = "nrbandw"

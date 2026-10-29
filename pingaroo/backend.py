@@ -16,7 +16,8 @@ class Backend:
     def wifi_state(self, interface: str, ssid: str) -> WifiState:
         raise NotImplementedError
 
-    def connect(self, cfg: dict, interface: str, cancel: CancelToken) -> tuple[bool, WifiState, str]:
+    def connect(self, cfg: dict, interface: str, cancel: CancelToken,
+                ssid: str | None = None, profile: str | None = None) -> tuple[bool, WifiState, str]:
         raise NotImplementedError
 
     def route_check(self, interface: str, targets: list[str], want_ipv6: bool) -> tuple[bool, str]:
@@ -45,8 +46,8 @@ class RealBackend(Backend):
     def wifi_state(self, interface: str, ssid: str) -> WifiState:
         return netinfo.wifi_state(interface, ssid)
 
-    def connect(self, cfg, interface, cancel):
-        return wifi.connect(cfg, interface, cancel)
+    def connect(self, cfg, interface, cancel, ssid=None, profile=None):
+        return wifi.connect(cfg, interface, cancel, ssid=ssid, profile=profile)
 
     def route_check(self, interface: str, targets: list[str], want_ipv6: bool) -> tuple[bool, str]:
         """The kernel's default path for test traffic must be the Wi-Fi interface.

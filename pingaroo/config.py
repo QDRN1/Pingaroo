@@ -66,6 +66,7 @@ DEFAULTS: dict[str, Any] = {
         "password_file": "/etc/pingaroo/router.secret",
         "login_path": "",
         "login_method": "form",
+        "password_hash": "none",
         "login_fields": {"username": "username", "password": "password"},
         "status_paths": [],
         "timeout_seconds": 8,
@@ -172,6 +173,8 @@ def validate(cfg: dict) -> None:
 
     rt = cfg["router"]
     _require(rt["type"] in ("none", "http_json"), "router.type must be none or http_json")
+    _require(rt["login_method"] in ("form", "json", "basic", "ncm"), "router.login_method must be form, json, basic or ncm")
+    _require(rt.get("password_hash", "none") in ("none", "sha256"), "router.password_hash must be none or sha256")
     _require(isinstance(rt["status_paths"], list), "router.status_paths must be a list")
     _require(isinstance(rt["fields"], dict), "router.fields must be a table of column = json.path")
 

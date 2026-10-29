@@ -88,6 +88,23 @@ def plural(n: int, word: str) -> str:
     return f"{n} {word}" + ("" if n == 1 else "s")
 
 
+INTERVAL_PRESETS = [30, 60, 300, 900, 1800]
+
+
+def fmt_interval(seconds) -> str:
+    try:
+        seconds = int(round(float(seconds)))
+    except (TypeError, ValueError):
+        return "-"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600}h"
+    if seconds % 60 == 0:
+        return f"{seconds // 60}m"
+    return f"{seconds // 60}m{seconds % 60:02d}"
+
+
 def signal_bars(dbm: int | None) -> int:
     if dbm is None:
         return 0
@@ -359,13 +376,20 @@ class Renderer:
         if err:
             self._text(draw, (8, y), err, 13, err_col, max_w=self.w - 16)
 
-        # Buttons
+        # Buttons: Start/Stop (wide), Cycle interval, Details
         by0, by1 = 258, 312
         if running:
-            self._button(draw, hits, (8, by0, 330, by1), "Stop Testing", "toggle_run", BTN_STOP, 22)
+            self._button(draw, hits, (8, by0, 268, by1), "Stop Testing", "toggle_run", BTN_STOP, 21)
         else:
-            self._button(draw, hits, (8, by0, 330, by1), "Start Test", "toggle_run", BTN_START, 22)
-        self._button(draw, hits, (344, by0, 472, by1), "Details", "details", BTN_NEUTRAL, 18)
+            self._button(draw, hits, (8, by0, 268, by1), "Start Test", "toggle_run", BTN_START, 21)
+        # Cycle button: top label "Cycle", big current interval
+        cx0, cx1 = 276, 372
+        draw.rounded_rectangle((cx0, by0 + 3, cx1, by1 + 3), radius=10, fill=(30, 40, 58))
+        draw.rounded_rectangle((cx0, by0, cx1, by1), radius=10, fill=BTN_NEUTRAL)
+        self._text(draw, ((cx0 + cx1) // 2, by0 + 14), "Cycle", 12, (200, 206, 216), anchor="mm")
+        self._text(draw, ((cx0 + cx1) // 2, by0 + 36), fmt_interval(snap.get("interval_s")), 20, BTN_TEXT, bold=True, anchor="mm")
+        hits.append(Hit(cx0, by0, cx1, by1, "cycle_interval"))
+        self._button(draw, hits, (380, by0, 472, by1), "Details", "details", BTN_NEUTRAL, 17)
         return img, hits
 
     # --------------------------------------------------------------- details
@@ -529,8 +553,7 @@ class Renderer:
                 self._text(draw, (164, y + 2), value, 13, color, max_w=self.w - 170)
             y += self.ROW_H
         by0, by1 = 262, 312
-        wifi = snap.get("wifi") or {}
-        on_home = bool(self.home_ssid) and wifi.get("ssid") == self.home_ssid
+        on_home = snap.get("active_target") == "home"
         same_net = bool(self.home_ssid) and self.home_ssid == self.ssid
         self._button(draw, hits, (8, by0, 92, by1), "Back", "back", BTN_NEUTRAL, 16)
         self._button(draw, hits, (100, by0, 172, by1), "Up", "page_up", BTN_NEUTRAL, 16)

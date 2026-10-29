@@ -23,12 +23,15 @@ class Layout(unittest.TestCase):
             img, hits = self.r.render_main(snap, sample_data.sample_storage(name))
             self.assertEqual(img.size, (480, 320))
             actions = [h.action for h in hits]
-            self.assertEqual(sorted(actions), ["details", "toggle_run"])
+            self.assertEqual(sorted(actions), ["cycle_interval", "details", "toggle_run"])
             for h in hits:
                 self.assertGreaterEqual(h.y1 - h.y0, 48)
                 self.assertTrue(0 <= h.x0 < h.x1 <= 480 and 0 <= h.y0 < h.y1 <= 320)
-            a, b = hits
-            self.assertTrue(a.x1 < b.x0 or b.x1 < a.x0, "buttons must not overlap")
+            for i in range(len(hits)):
+                for j in range(i + 1, len(hits)):
+                    a, b = hits[i], hits[j]
+                    self.assertTrue(a.x1 < b.x0 or b.x1 < a.x0 or a.y1 < b.y0 or b.y1 < a.y0,
+                                    "buttons must not overlap")
 
     def test_details_pages(self):
         snap = sample_data.sample_snapshot()["success_waiting"]
@@ -177,6 +180,15 @@ class ControllerBehaviour(unittest.TestCase):
         self.ctl.last_touch_mono = time.monotonic() - 1000
         self.ctl.maybe_sleep(time.monotonic())
         self.assertFalse(self.ctl.asleep)
+
+    def test_cycle_interval_advances_and_wraps(self):
+        from pingaroo.ui import INTERVAL_PRESETS
+        self.worker.set_interval(30)
+        seq = []
+        for _ in range(len(INTERVAL_PRESETS) + 1):
+            self.ctl.perform("cycle_interval")
+            seq.append(int(self.worker.interval_s))
+        self.assertEqual(seq[:len(INTERVAL_PRESETS)], INTERVAL_PRESETS[1:] + [INTERVAL_PRESETS[0]])
 
     def test_next_label_cycles(self):
         self.ctl.perform("next_label")

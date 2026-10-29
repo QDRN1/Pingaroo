@@ -313,6 +313,65 @@ class RouterAdapter(unittest.TestCase):
         self.assertEqual(_coerce("12.5"), 12.5)
         self.assertEqual(_coerce("n77"), "n77")
 
+    def test_ncm_sha256_login_and_fields(self):
+        import http.server, json as js, threading, hashlib
+        from pingaroo import router
+        from tests.fakes import test_config
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0))
+                body = js.loads(self.rfile.read(n).decode())
+                ok = body.get("Password") == hashlib.sha256(b"secret").hexdigest() and "token" in body
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(js.dumps({"Success": ok, "Login": 1 if ok else 0,
+                                           "sessionID": "abc"} if ok else {"Success": False, "Login": 0}).encode())
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                if self.path.startswith("/cgi-bin/GetENDCInfo"):
+                    self.wfile.write(js.dumps({"nrband": "N77", "nr5g_rsrp": "-72", "nr5g_snr": "2",
+                                               "nr5g_rsrq": "-9", "nr5g_rssi": "-63", "nr5g_pci": "265",
+                                               "nr5g_tac": "17939", "nr5g_gci": "83691327", "nrbandw": "9"}).encode())
+                else:
+                    self.wfile.write(js.dumps({"APN_Name": "5gcbroadband"}).encode())
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                pw = os.path.join(d, "secret")
+                with open(pw, "w") as fh:
+                    fh.write("secret\n")
+                cfg = test_config()
+                cfg["router"].update(type="http_json", base_url=f"http://127.0.0.1:{srv.server_port}",
+                                     username="attadmin", password_file=pw, login_path="/cgi-bin/Login",
+                                     login_method="ncm", password_hash="sha256",
+                                     login_fields={"username": "UserName", "password": "Password"},
+                                     status_paths=["/cgi-bin/GetENDCInfo", "/cgi-bin/GetLTEBasicSetting"],
+                                     fields={"cell_5g_band": "nrband", "cell_5g_rsrp": "nr5g_rsrp",
+                                             "cell_5g_sinr": "nr5g_snr", "cell_5g_rsrq": "nr5g_rsrq",
+                                             "cell_pci": "nr5g_pci", "cell_tac": "nr5g_tac",
+                                             "cell_cell_id": "nr5g_gci", "cell_apn": "APN_Name"})
+                out = router.fetch(cfg)
+                self.assertNotIn("error", out)
+                self.assertEqual(out["cell_5g_band"], "N77")
+                self.assertEqual(out["cell_5g_rsrp"], -72)
+                self.assertEqual(out["cell_cell_id"], 83691327)
+                self.assertEqual(out["cell_apn"], "5gcbroadband")
+                with open(pw, "w") as fh:
+                    fh.write("wrong\n")
+                self.assertIn("rejected", router.fetch(cfg).get("error", ""))
+        finally:
+            srv.shutdown()
+
     def test_fetch_none_and_http(self):
         import http.server, json as js, threading
         from pingaroo import router

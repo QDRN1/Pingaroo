@@ -56,14 +56,16 @@ extra_args = []
 [router]
 # Cellular/modem data from the router's own web API. "none" records nothing.
 # "http_json": optional login, GET each status path, map CSV columns to JSON paths.
-# See docs/ROUTER.md for discovering the endpoints of the AT&T Internet Air (NCM1120).
+# See docs/ROUTER.md. A ready-made block for the AT&T Internet Air NCM1120 is in
+# examples/router-ncm1120.toml.
 type = "none"
 base_url = "http://192.168.1.1"
 username = "attadmin"
 # Admin password lives only here (root, mode 600): sudo pingaroo router-password
 password_file = "/etc/pingaroo/router.secret"
 login_path = ""              # e.g. "/cgi-bin/login.cgi"; empty = no login step
-login_method = "form"        # form | json | basic
+login_method = "form"        # form | json | basic | ncm (AT&T Internet Air)
+password_hash = "none"       # none | sha256 (ncm firmwares hash the password)
 login_fields = { username = "username", password = "password" }
 status_paths = []            # e.g. ["/api/mobile/status", "/api/system/info"]
 timeout_seconds = 8

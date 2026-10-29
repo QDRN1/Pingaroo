@@ -11,6 +11,64 @@ it). The user guide documents the pages (Network > Status > Mobile, Network Map 
 4G/5G, APN Settings, System Information) but not the JSON endpoints behind them, so
 the first step is to capture them once in a browser.
 
+## Confirmed for This Gateway (NCM1120D2-D323)
+
+The API was captured from the gateway web UI. A ready-to-use block is in
+`examples/router-ncm1120.toml`; merge its `[router]` and `[router.fields]` into
+`/etc/pingaroo/config.toml`. Summary:
+
+- Login: `POST http://192.168.1.1/cgi-bin/Login` with JSON
+  `{"UserName":"attadmin","Password":"<sha256 of the admin password>","token":""}`;
+  a success returns `{"Success":true,"Login":1,"sessionID":"..."}`. The adapter does
+  the SHA-256 for you (`password_hash = "sha256"`); store the plaintext admin
+  password with `sudo pingaroo router-password`.
+- The session is tracked by the client's IP after login, so the status reads are plain
+  GETs with no cookie.
+- Cellular data comes from these endpoints (all under `/cgi-bin/`):
+  `GetENDCInfo` (5G NR band, RSRP, RSRQ, SINR, RSSI, PCI, TAC, GCI = cell id),
+  `GetLTEStatus` (operator, net type, IMEI, IMSI, ICCID, SKU),
+  `GetLTEBasicSetting` (APN name, auth, PDP type), `GetWanIp` (cellular WAN IP),
+  `GetNvInfo` (firmware, product id, uptime), `GetStatistic` (data volumes).
+- Example values seen on this unit: band N77, RSRP -72 dBm, RSRQ -9 dB, SINR ~2 dB,
+  RSSI -63 dBm, PCI 265, TAC 17939, cell id 83691327, APN 5gcbroadband, 5G+.
+- The sector is not exposed directly. The gNB/cell split from the GCI 83691327:
+  with a common cell-per-site factor the GCI yields the gNB id and sector index
+  (your RF engineering can confirm the factor for AT&T NSA).
+
+Setup once the Pi can reach the admin page (on 2.4 GHz, see "Band note" below):
+
+```bash
+sudo pingaroo router-password
+```
+
+```bash
+sudo nano /etc/pingaroo/config.toml    # paste the [router] block from examples/router-ncm1120.toml
+sudo systemctl restart pingaroo
+```
+
+Verify:
+
+```bash
+sudo pingaroo router-probe /cgi-bin/GetENDCInfo /cgi-bin/GetLTEStatus
+```
+
+**Band note:** on this gateway the admin interface answers only to clients on the
+2.4 GHz radio of Kangaroo Labs; 5 GHz clients get an IP and internet but time out on
+`192.168.1.1:80`. The Pi associates to whichever band the gateway steers it to. If
+`router-probe` times out, the Pi is on 5 GHz. Options: force the Pi's profile to
+2.4 GHz, or accept that cellular data is read only when it lands on 2.4 GHz. Set a
+fixed band on the Pi's Kangaroo Labs profile with:
+
+```bash
+sudo nmcli connection modify "Kangaroo Labs" 802-11-wireless.band bg
+sudo systemctl restart pingaroo
+```
+
+Note that `band bg` forces 2.4 GHz, which lowers the Wi-Fi link rate and therefore the
+speed-test ceiling; record that in the label when you do it.
+
+---
+
 ## Step 1: Capture the API Once (Laptop on Kangaroo Labs)
 
 1. Join a laptop to the Kangaroo Labs Wi-Fi. Open Chrome or Edge, press F12,

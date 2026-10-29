@@ -137,6 +137,11 @@ class UIController:
                 self.worker.stop_session()
             else:
                 self.worker.start_session()
+        elif action == "cycle_interval":
+            from .ui import INTERVAL_PRESETS
+            cur = int(self.worker.interval_s)
+            nxt = next((p for p in INTERVAL_PRESETS if p > cur), INTERVAL_PRESETS[0])
+            self.worker.set_interval(nxt)
         elif action == "details":
             self.screen = "details"
             self.page = 0
@@ -147,9 +152,7 @@ class UIController:
         elif action == "page_down":
             self.page = min(self.pages - 1, self.page + 1)
         elif action == "switch_wifi":
-            wifi = self.worker.state.wifi
-            home_ssid = self.cfg["wifi"].get("home_ssid", "")
-            target = "test" if (home_ssid and wifi.ssid == home_ssid) else "home"
+            target = "test" if self.worker.state.active_target == "home" else "home"
             self.worker.switch_network(target)
         elif action == "next_label":
             current = self.worker.state.label_override or self.worker.state.label
