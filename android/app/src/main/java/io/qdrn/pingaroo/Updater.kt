@@ -3,6 +3,8 @@ package io.qdrn.pingaroo
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -64,7 +66,10 @@ class Updater(private val ctx: Context) {
 
     fun isNewer(info: Info): Boolean = info.versionCode > BuildConfig.VERSION_CODE
 
-    suspend fun download(info: Info, onProgress: (Int) -> Unit): File = withContext(Dispatchers.IO) {
+    suspend fun download(info: Info, onProgressRaw: (Int) -> Unit): File = withContext(Dispatchers.IO) {
+        val main = Handler(Looper.getMainLooper())
+        var lastPct = -1
+        val onProgress: (Int) -> Unit = { pct -> if (pct != lastPct) { lastPct = pct; main.post { onProgressRaw(pct) } } }
         val dir = File(ctx.cacheDir, "updates").apply { mkdirs() }
         val out = File(dir, "pingaroo-mobile-${info.versionCode}.apk")
         val c = open(info.apkPath, raw = true)

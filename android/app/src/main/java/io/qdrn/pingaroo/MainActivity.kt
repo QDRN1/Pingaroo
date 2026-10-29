@@ -504,7 +504,7 @@ class MainActivity : AppCompatActivity() {
                 lifecycleScope.launch {
                     try {
                         updateBanner.visibility = View.VISIBLE
-                        val apk = updater.download(info) { pct -> updateBanner.text = "Downloading v${info.versionName}: $pct%" }
+                        val apk = updater.download(info) { pct -> updateBanner.post { updateBanner.text = "Downloading v${info.versionName}: $pct%" } }
                         updateBanner.text = "Downloaded. Opening installer…"
                         startActivity(updater.installIntent(apk))
                     } catch (e: Updater.AuthRequired) {
