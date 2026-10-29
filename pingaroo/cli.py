@@ -204,6 +204,22 @@ def cmd_label(args) -> int:
     return rc
 
 
+def cmd_labels(args) -> int:
+    cfg = _cfg(args)
+    if not args.names:
+        print("predefined labels: " + ", ".join(cfg["app"]["labels"]))
+        return 0
+    names = [n.strip() for n in args.names if n.strip()]
+    config_mod.set_value(cfg["_path"], "app", "labels", names)
+    if cfg["app"]["label"] not in names:
+        config_mod.set_value(cfg["_path"], "app", "label", names[0])
+        print(f"active label set to {names[0]!r}")
+    config_mod.load(cfg["_path"])
+    print("predefined labels: " + ", ".join(names))
+    print("Restart the service so the Next Label button uses the new list: sudo systemctl restart pingaroo")
+    return 0
+
+
 def cmd_interval(args) -> int:
     if args.seconds is None:
         print(f"interval_seconds = {_cfg(args)['app']['interval_seconds']}")
@@ -698,6 +714,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("label", help="show or set the configuration label")
     s.add_argument("name", nargs="?")
     s.set_defaults(func=cmd_label)
+
+    s = sub.add_parser("labels", help="show or set the list of predefined labels for the Next Label button")
+    s.add_argument("names", nargs="*")
+    s.set_defaults(func=cmd_labels)
 
     s = sub.add_parser("interval", help="show or set the completion-to-next-start interval in seconds")
     s.add_argument("seconds", nargs="?")

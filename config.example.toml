@@ -5,11 +5,12 @@
 # /etc/NetworkManager/system-connections/ (root-only keyfile).
 
 [app]
-# Label stamped on every result at cycle start. Change it any time; the next cycle
-# picks it up without a restart (pingaroo label "Config B").
-label = "Config A"
+# Label stamped on every result at cycle start: which router configuration is under
+# test (e.g. APN). Change it any time; the next cycle picks it up without a restart
+# (pingaroo label NRB). 5GC = APN 5gcbroadband, NRB = the other APN config.
+label = "5GC"
 # Labels offered by the on-screen "Next Label" button in the Details view.
-labels = ["Config A", "Config B", "APN test"]
+labels = ["5GC", "NRB"]
 # Start the test loop automatically at boot. Default: wait for Start Test.
 autostart = false
 # Seconds from the end of one attempt to the start of the next.

@@ -180,10 +180,9 @@ class ControllerBehaviour(unittest.TestCase):
 
     def test_next_label_cycles(self):
         self.ctl.perform("next_label")
-        self.assertEqual(self.state.label_override, "Config B")
+        self.assertEqual(self.state.label_override, "NRB")
         self.ctl.perform("next_label")
-        self.ctl.perform("next_label")
-        self.assertEqual(self.state.label_override, "Config A")
+        self.assertEqual(self.state.label_override, "5GC")
 
     def test_frame_written(self):
         self.assertTrue(os.path.exists(self.png))

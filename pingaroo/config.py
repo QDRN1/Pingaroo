@@ -17,8 +17,8 @@ DEFAULT_CONFIG_PATH = "/etc/pingaroo/config.toml"
 
 DEFAULTS: dict[str, Any] = {
     "app": {
-        "label": "Config A",
-        "labels": ["Config A", "Config B", "APN test"],
+        "label": "5GC",
+        "labels": ["5GC", "NRB"],
         "autostart": False,
         "interval_seconds": 300,
     },
