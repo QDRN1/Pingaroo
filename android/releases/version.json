@@ -1,6 +1,6 @@
 {
-  "versionCode": 8,
-  "versionName": "1.7",
+  "versionCode": 9,
+  "versionName": "1.8",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Both mode: gateway + phone together with delta RSRP/SINR and same-cell check; single-line date and time"
+  "notes": "Install-permission prompt before updates, progress and error dialogs, Gateway probe, stale tiles cleared on gateway errors, QDRN and token removed"
 }
