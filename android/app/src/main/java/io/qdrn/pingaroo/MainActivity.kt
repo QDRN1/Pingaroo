@@ -36,6 +36,8 @@ import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.materialswitch.MaterialSwitch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -59,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private var label = ""
     private var paused = false
     private var last: Sample? = null
+    private var lastPhone: Sample? = null       // phone sample in Both mode
     private var lastAt = 0L
     private var pendingUpdate: Updater.Info? = null
     private var gatewayMisses = 0
@@ -75,6 +78,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var freshness: TextView
     private lateinit var updateBanner: TextView
     private lateinit var tilesSignal: LinearLayout
+    private lateinit var tilesSignal2: LinearLayout
+    private lateinit var tilesCompare: LinearLayout
+    private lateinit var sectionSignal: TextView
+    private lateinit var sectionSignal2: TextView
+    private lateinit var sectionCompare: TextView
     private lateinit var tilesStats: LinearLayout
     private lateinit var tilesCell: LinearLayout
     private lateinit var tilesLte: LinearLayout
@@ -107,6 +115,11 @@ class MainActivity : AppCompatActivity() {
         freshness = findViewById(R.id.freshness)
         updateBanner = findViewById(R.id.updateBanner)
         tilesSignal = findViewById(R.id.tilesSignal)
+        tilesSignal2 = findViewById(R.id.tilesSignal2)
+        tilesCompare = findViewById(R.id.tilesCompare)
+        sectionSignal = findViewById(R.id.sectionSignal)
+        sectionSignal2 = findViewById(R.id.sectionSignal2)
+        sectionCompare = findViewById(R.id.sectionCompare)
         tilesStats = findViewById(R.id.tilesStats)
         tilesCell = findViewById(R.id.tilesCell)
         tilesLte = findViewById(R.id.tilesLte)
@@ -126,16 +139,16 @@ class MainActivity : AppCompatActivity() {
         footer.setOnClickListener { showAbout() }
 
         val group = findViewById<MaterialButtonToggleGroup>(R.id.sourceGroup)
-        group.check(if (source == "phone") R.id.btnPhone else R.id.btnGateway)
+        group.check(when (source) { "phone" -> R.id.btnPhone; "both" -> R.id.btnBoth; else -> R.id.btnGateway })
         group.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (isChecked) {
-                source = if (checkedId == R.id.btnPhone) "phone" else "gateway"
+                source = when (checkedId) { R.id.btnPhone -> "phone"; R.id.btnBoth -> "both"; else -> "gateway" }
                 prefs.source = source
                 spark.clear()
                 gatewayMisses = 0
                 last = null; lastAt = 0L
                 buildTiles()
-                verdict.set("SWITCHING", Thresholds.AMBER, 0, "Reading from the ${if (source == "gateway") "gateway" else "phone radio"}…")
+                verdict.set("SWITCHING", Thresholds.AMBER, 0, "Reading from ${when (source) { "gateway" -> "the gateway"; "phone" -> "the phone radio"; else -> "gateway and phone" }}…")
                 restartLoop()
             }
         }
@@ -180,17 +193,35 @@ class MainActivity : AppCompatActivity() {
             while (isActive) {
                 if (!paused) {
                     val src = source
-                    val raw = if (src == "gateway") gateway.fetch(label) else phone.fetch(label)
+                    var phoneSample: Sample? = null
+                    val raw = when (src) {
+                        "gateway" -> gateway.fetch(label)
+                        "phone" -> phone.fetch(label)
+                        else -> coroutineScope {
+                            val g = async { gateway.fetch(label) }
+                            val p = async { phone.fetch(label) }
+                            phoneSample = p.await(); g.await()
+                        }
+                    }
                     if (!isActive || src != source) break      // switched while fetching: a new loop owns the screen
                     val loc = location.last
                     val sample = raw.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
+                    val ps = phoneSample?.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
                     if (sample.source == "gateway" && sample.error.isNotEmpty()) {
                         gatewayMisses++
-                        if (gatewayMisses < 3 && last != null && last!!.error.isEmpty()) { tick(); delay(prefs.pollMs); continue }
+                        if (gatewayMisses < 3 && last != null && last!!.error.isEmpty()) {
+                            if (ps != null) { lastPhone = ps; renderPhoneBlock(ps) }
+                            tick(); delay(prefs.pollMs); continue
+                        }
                     } else gatewayMisses = 0
-                    last = sample; lastAt = System.currentTimeMillis()
+                    last = sample; lastPhone = ps; lastAt = System.currentTimeMillis()
                     render(sample)
-                    if (prefs.logging && sample.error.isEmpty()) { logger.append(sample); updateSpots() }
+                    if (ps != null) renderPhoneBlock(ps)
+                    if (prefs.logging) {
+                        if (sample.error.isEmpty()) logger.append(sample)
+                        if (ps != null && ps.error.isEmpty()) logger.append(ps)
+                        updateSpots()
+                    }
                     if (prefs.tone && sample.error.isEmpty()) beepFor(sample)
                 }
                 delay(prefs.pollMs)
@@ -216,22 +247,23 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------- ticker
     private fun tick() {
-        clock.text = SimpleDateFormat("EEE MMM d  HH:mm:ss", Locale.US).format(Date())
+        clock.text = SimpleDateFormat("EEE MMM d, yyyy  HH:mm:ss", Locale.US).format(Date())
         if (paused) { freshness.text = "PAUSED"; freshness.setTextColor(Thresholds.AMBER); return }
         if (lastAt == 0L) { freshness.text = "waiting for first reading"; freshness.setTextColor(Thresholds.MUTED); return }
         val age = (System.currentTimeMillis() - lastAt) / 1000
         freshness.text = if (age < 1) "updated just now" else "updated ${age}s ago"
         freshness.setTextColor(when { age > 30 -> Thresholds.RED; age > 10 -> Thresholds.AMBER; else -> Thresholds.MUTED })
         // context line
-        contextLine.text = if (source == "gateway") {
+        contextLine.text = if (source != "phone") {
             val ss = wifi.ssid
             val l = last
             val gw = prefs.gatewayUrl.removePrefix("http://")
             val retry = if (gatewayMisses in 1..2) " · retrying ($gatewayMisses)" else ""
+            val bothNote = if (source == "both") " · +phone" else ""
             when {
                 !wifi.onWifi -> "Phone is not on Wi-Fi: join the gateway's network"
-                l != null && l.error.isEmpty() -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw · ${l.fetchMs ?: "-"} ms$retry" + if (!wifi.validated) " · Wi-Fi has no internet (bound anyway)" else ""
-                else -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw not answering$retry"
+                l != null && l.error.isEmpty() -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw · ${l.fetchMs ?: "-"} ms$retry$bothNote" + if (!wifi.validated) " · no internet flag" else ""
+                else -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw not answering$retry$bothNote"
             }
         } else {
             val l = last
@@ -272,9 +304,19 @@ class MainActivity : AppCompatActivity() {
     private fun buildTiles() {
         val wide = resources.configuration.screenWidthDp >= 600
         columns = if (wide) 4 else 3
-        grid(tilesSignal, listOf("rsrp", "sinr", "rsrq", "rssi"), cols = if (wide) 4 else 2, height = 88)
+        val both = source == "both"
+        sectionSignal.visibility = if (both) View.VISIBLE else View.GONE
+        sectionSignal2.visibility = if (both) View.VISIBLE else View.GONE
+        tilesSignal2.visibility = if (both) View.VISIBLE else View.GONE
+        sectionCompare.visibility = if (both) View.VISIBLE else View.GONE
+        tilesCompare.visibility = if (both) View.VISIBLE else View.GONE
+        grid(tilesSignal, listOf("rsrp", "sinr", "rsrq", "rssi"), cols = if (wide) 4 else 2, height = if (both) 72 else 88)
+        if (both) {
+            grid(tilesSignal2, listOf("p_rsrp", "p_sinr", "p_rsrq", "p_rssi"), cols = if (wide) 4 else 2, height = 72)
+            grid(tilesCompare, listOf("d_rsrp", "d_sinr", "d_cell", "p_tech"), cols = if (wide) 4 else 2, height = 64)
+        }
         grid(tilesStats, listOf("session", "srsrp", "ssinr", "best"), cols = if (wide) 4 else 2, height = 64)
-        if (source == "gateway")
+        if (source != "phone")
             grid(tilesCell, listOf("tech", "band", "pci", "cell", "tac", "arfcn", "bw", "apn", "wan"))
         else
             grid(tilesCell, listOf("tech", "band", "pci", "cell", "tac", "arfcn", "bw", "level", "operator"))
@@ -306,7 +348,13 @@ class MainActivity : AppCompatActivity() {
         val (v, col) = Thresholds.verdict(rsrp, sinr)
         val bars = when (v) { "EXCELLENT" -> 5; "GOOD" -> 4; "FAIR" -> 3; "POOR" -> 2; "INTERFERENCE" -> 1; else -> 0 }
         val where = if (label.isNotEmpty()) "at $label" else "no location label"
-        verdict.set(v, col, bars, "${s.source.replaceFirstChar { it.uppercase() }} · ${s.tech.ifEmpty { "-" }} · $where")
+        val ph = lastPhone
+        val phoneNote = if (source == "both" && ph != null && ph.error.isEmpty()) {
+            val pr = ph.rsrp ?: ph.lteRsrp; val psn = ph.sinr ?: ph.lteRssnr
+            val (pv, _) = Thresholds.verdict(pr, psn)
+            " · phone $pv (${pr ?: "-"}/${psn ?: "-"})"
+        } else ""
+        verdict.set(v, col, bars, "${s.source.replaceFirstChar { it.uppercase() }} · ${s.tech.ifEmpty { "-" }} · $where$phoneNote")
 
         tile("rsrp").set("RSRP$tag", rsrp?.toString() ?: "-", "dBm" + arrow(rsrp, prevR), Thresholds.rsrp(rsrp), Thresholds.frac(rsrp, -120, -60))
         tile("sinr").set("SINR$tag", sinr?.toString() ?: "-", "dB" + arrow(sinr, prevS), Thresholds.sinr(sinr), Thresholds.frac(sinr, -5, 30))
@@ -346,6 +394,36 @@ class MainActivity : AppCompatActivity() {
         spark.push(rsrp, sinr)
         val gps = if (s.lat != null) "GPS %.5f, %.5f (±%.0f m)".format(s.lat, s.lon, s.accuracyM ?: 0f) else "GPS: no fix yet"
         status.text = "$gps   ·   sample ${s.time.substring(11, 19)}"
+    }
+
+    /** Both mode: the phone's 2x2 block plus the phone-vs-gateway comparison. */
+    private fun renderPhoneBlock(p: Sample) {
+        if (p.error.isNotEmpty()) {
+            for (k in listOf("p_rsrp", "p_sinr", "p_rsrq", "p_rssi")) tile(k).set(k.removePrefix("p_").uppercase(), "-", "", Thresholds.MUTED)
+            tile("p_tech").set("PHONE", "no data", "", Thresholds.RED, big = false)
+            return
+        }
+        val useLte = p.rsrp == null && p.lteRsrp != null
+        val rsrp = if (useLte) p.lteRsrp else p.rsrp
+        val sinr = if (useLte) p.lteRssnr else p.sinr
+        val rsrq = if (useLte) p.lteRsrq else p.rsrq
+        val tag = if (useLte) " (LTE)" else " (NR)"
+        tile("p_rsrp").set("PHONE RSRP$tag", rsrp?.toString() ?: "-", "dBm", Thresholds.rsrp(rsrp), Thresholds.frac(rsrp, -120, -60))
+        tile("p_sinr").set("PHONE SINR$tag", sinr?.toString() ?: "-", "dB", Thresholds.sinr(sinr), Thresholds.frac(sinr, -5, 30))
+        tile("p_rsrq").set("PHONE RSRQ$tag", rsrq?.toString() ?: "-", "dB", Thresholds.rsrq(rsrq), Thresholds.frac(rsrq, -20, -3))
+        tile("p_rssi").set("PHONE RSSI", p.rssi?.toString() ?: "-", "dBm", Thresholds.rssi(p.rssi), Thresholds.frac(p.rssi, -100, -50))
+        val g = last
+        val gRsrp = g?.rsrp; val gSinr = g?.sinr
+        val dR = if (rsrp != null && gRsrp != null) rsrp - gRsrp else null
+        val dS = if (sinr != null && gSinr != null) sinr - gSinr else null
+        fun signed(v: Int?) = when { v == null -> "-"; v > 0 -> "+$v"; else -> "$v" }
+        tile("d_rsrp").set("Δ RSRP (phone − gateway)", signed(dR), "dB", when { dR == null -> Thresholds.MUTED; dR >= 3 -> Thresholds.GREEN; dR <= -3 -> Thresholds.RED; else -> Thresholds.TEXT }, big = false)
+        tile("d_sinr").set("Δ SINR (phone − gateway)", signed(dS), "dB", when { dS == null -> Thresholds.MUTED; dS >= 3 -> Thresholds.GREEN; dS <= -3 -> Thresholds.RED; else -> Thresholds.TEXT }, big = false)
+        val pPci = p.pci ?: p.ltePci; val gPci = g?.pci ?: g?.ltePci
+        val same = pPci != null && gPci != null && pPci == gPci
+        tile("d_cell").set("SAME CELL", if (pPci == null || gPci == null) "-" else if (same) "YES  PCI $pPci" else "NO  $pPci vs $gPci", "",
+            if (pPci == null || gPci == null) Thresholds.MUTED else if (same) Thresholds.GREEN else Thresholds.AMBER, big = false)
+        tile("p_tech").set("PHONE", "${p.tech.ifEmpty { "-" }}  ${p.band.ifEmpty { p.lteBand }}", "", Thresholds.CYAN, big = false)
     }
 
     private fun renderStats() {
@@ -418,6 +496,7 @@ class MainActivity : AppCompatActivity() {
                 if (s == null || s.error.isNotEmpty()) { Toast.makeText(this, "No reading to save yet", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
                 val snap = s.copy(label = label, event = "snapshot")
                 logger.append(snap); SnapshotStore.add(snap)
+                lastPhone?.let { ph -> if (ph.error.isEmpty()) { val ps = ph.copy(label = label, event = "snapshot"); logger.append(ps); SnapshotStore.add(ps) } }
                 anchor.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                 updateSpots(); renderStats()
                 last?.let { render(it.copy(label = label)) }

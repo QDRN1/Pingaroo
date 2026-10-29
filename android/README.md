@@ -26,6 +26,9 @@ two sources:
   with that label and the GPS fix. Use it at each spot you evaluate.
 - **Log To CSV** records every 2-second sample continuously; **Share CSV** sends the file.
 
+- **Both** source: polls the gateway and the phone radio together, shows the two 2x2
+  blocks stacked, and a comparison row: Δ RSRP and Δ SINR (phone minus gateway) and
+  whether both are on the same cell (PCI match). Snapshots and logging record both.
 - Context strip: which Wi-Fi the phone is on and whether the gateway answers (with
   round-trip ms), or operator and tech on the Phone source; and "updated Ns ago",
   turning amber past 10 s and red past 30 s.
