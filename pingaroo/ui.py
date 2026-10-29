@@ -242,12 +242,18 @@ class Renderer:
             wifi_txt, wifi_col = f"Not connected (target {target})", RED
         self._icon_wifi(draw, 8, y + 1, signal_bars(wifi.get("signal_dbm")) if wifi.get("associated") else 0, wifi_col)
         self._text(draw, (36, y), "Wi-Fi", 15, MUTED)
-        dbm_txt = f"{wifi['signal_dbm']} dBm" if (wifi.get("signal_dbm") is not None and wifi.get("associated")) else ""
-        self._text(draw, (90, y), wifi_txt, 15, wifi_col, bold=True, max_w=(236 if dbm_txt else 250))
-        if dbm_txt:
-            self._text(draw, (334, y + 2), dbm_txt, 12, MUTED)
         ip = wifi.get("ip") or "No IP"
-        self._text(draw, (self.w - 8, y), ip, 15, TEXT if wifi.get("ip") else RED, bold=True, anchor="ra", max_w=130)
+        ip_font = self.fonts.get(15, True)
+        ip_w = int(draw.textlength(ip, font=ip_font))
+        ip_x = self.w - 8 - ip_w
+        self._text(draw, (self.w - 8, y), ip, 15, TEXT if wifi.get("ip") else RED, bold=True, anchor="ra")
+        right_edge = ip_x - 8
+        dbm_txt = f"{wifi['signal_dbm']} dBm" if (wifi.get("signal_dbm") is not None and wifi.get("associated")) else ""
+        if dbm_txt:
+            dbm_w = int(draw.textlength(dbm_txt, font=self.fonts.get(12)))
+            self._text(draw, (right_edge - dbm_w, y + 2), dbm_txt, 12, MUTED)
+            right_edge -= dbm_w + 10
+        self._text(draw, (90, y), wifi_txt, 15, wifi_col, bold=True, max_w=max(60, right_edge - 90))
 
         y = 62
         if internet.get("checking"):
