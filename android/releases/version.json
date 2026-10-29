@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4",
+  "versionCode": 6,
+  "versionName": "1.5",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Version/About, freshness + context strip, Pause, trend arrows, session stats, Spots screen, Settings, audio tone, tap-to-fix errors, kangaroo icon"
+  "notes": "Updater threading fix, LTE-anchor identity fallback, Radio debug dump"
 }
