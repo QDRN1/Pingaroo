@@ -495,3 +495,22 @@ class NetworkSwitch(unittest.TestCase):
             self.assertIn("router_info", b.calls)
         finally:
             h.close()
+
+
+class SurveyMode(unittest.TestCase):
+    def test_speedtest_skipped_when_disabled(self):
+        b = FakeBackend()
+        cfg = test_config()
+        cfg["speedtest"]["enabled"] = False
+        cfg["router"]["type"] = "http_json"
+        h = WorkerHarness(b, cfg)
+        try:
+            h.worker.start_session()
+            self.assertTrue(wait_until(lambda: len(h.rows()) >= 1, 5))
+            row = h.rows()[0]
+            self.assertEqual(row["status"], "SUCCESS")
+            self.assertEqual(row["download_mbps"], "")
+            self.assertEqual(row["cell_rsrp"], "-95")
+            self.assertNotIn("speedtest", b.calls)
+        finally:
+            h.close()

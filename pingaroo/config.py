@@ -53,6 +53,7 @@ DEFAULTS: dict[str, Any] = {
         },
     },
     "speedtest": {
+        "enabled": True,
         "command": "speedtest",
         "server_id": 0,
         "timeout_seconds": 180,

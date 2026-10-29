@@ -472,6 +472,28 @@ def cmd_band(args) -> int:
     return 0 if res.ok else 1
 
 
+def cmd_survey(args) -> int:
+    """Survey mode: 30 s cycles, no speed test, RSRP/SINR/RSRQ big on the screen.
+    Label each location with Next Label or `pingaroo label`."""
+    cfg = _cfg(args)
+    if args.mode is None:
+        print("survey mode is " + ("ON (speed test off)" if not cfg["speedtest"]["enabled"] else "off"))
+        return 0
+    _need_root("changing survey mode")
+    path = cfg["_path"]
+    if args.mode == "on":
+        config_mod.set_value(path, "speedtest", "enabled", False)
+        config_mod.set_value(path, "app", "interval_seconds", 30)
+        print("survey mode ON: speed test disabled, interval 30 s. Set location labels with:")
+        print('   sudo pingaroo labels roof "window south" desk && sudo pingaroo label roof')
+    else:
+        config_mod.set_value(path, "speedtest", "enabled", True)
+        config_mod.set_value(path, "app", "interval_seconds", 300)
+        print("survey mode off: speed test enabled, interval 300 s")
+    print("Restart to apply: sudo systemctl restart pingaroo && sudo pingaroo start")
+    return 0
+
+
 def cmd_config(args) -> int:
     cfg = _cfg(args)
     path = cfg.pop("_path")
@@ -825,6 +847,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("band", help="lock the test Wi-Fi to 2.4/5 GHz or auto (NCM1120 admin needs 2.4)")
     s.add_argument("choice", nargs="?", choices=["2.4", "2", "5", "auto"])
     s.set_defaults(func=cmd_band)
+
+    s = sub.add_parser("survey", help="site-survey mode: 30 s cycles, no speed test, RSRP/SINR on screen")
+    s.add_argument("mode", nargs="?", choices=["on", "off"])
+    s.set_defaults(func=cmd_survey)
 
     s = sub.add_parser("config", help="print the effective configuration")
     s.set_defaults(func=cmd_config)

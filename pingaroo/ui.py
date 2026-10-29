@@ -124,6 +124,7 @@ class Renderer:
         self.h = int(d["height"])
         self.fonts = Fonts(d["font"], d["font_bold"])
         self.title = "Pingaroo"
+        self.survey = not cfg["speedtest"].get("enabled", True)
         self.ssid = cfg["wifi"]["ssid"]
         self.home_ssid = cfg["wifi"].get("home_ssid", "")
 
@@ -289,10 +290,27 @@ class Renderer:
         # Results block
         speed = snap.get("last_speed") or {}
         previous = snap.get("speed_is_previous", False)
+        router = snap.get("last_router") or {}
         draw.rounded_rectangle((4, 86, self.w - 4, 170), radius=10, fill=PANEL, outline=PANEL_EDGE)
-        cols = [(84, "Download Mbps", "download", speed.get("download_mbps")),
-                (240, "Upload Mbps", "upload", speed.get("upload_mbps")),
-                (396, "Ping ms (speedtest idle)", "ping", speed.get("latency_ms"))]
+        if self.survey:
+            rsrp = router.get("cell_5g_rsrp", router.get("cell_rsrp"))
+            sinr = router.get("cell_5g_sinr", router.get("cell_sinr"))
+            rsrq = router.get("cell_5g_rsrq", router.get("cell_rsrq"))
+            for cx, caption, value, unit in ((84, "RSRP dBm", rsrp, ""), (240, "SINR dB", sinr, ""), (396, "RSRQ dB", rsrq, "")):
+                col = GREEN if (caption.startswith("SINR") and isinstance(value, (int, float)) and value >= 10) else \
+                      RED if (caption.startswith("SINR") and isinstance(value, (int, float)) and value < 3) else TEXT
+                self._text(draw, (cx, 98), caption, 12, MUTED, anchor="mm")
+                self._text(draw, (cx, 130), fmt_num(value, 0) if value is not None else "-", 34, col, bold=True, anchor="mm")
+            band = router.get("cell_5g_band") or router.get("cell_band") or "-"
+            pci = router.get("cell_5g_pci", router.get("cell_pci"))
+            cid = router.get("cell_cell_id")
+            self._text(draw, (12, 164), f"SURVEY  band {band}  PCI {pci if pci is not None else '-'}  cell {cid if cid is not None else '-'}  "
+                       f"(speed test off)", 11, AMBER, anchor="lb", max_w=self.w - 24)
+            cols = []
+        else:
+            cols = [(84, "Download Mbps", "download", speed.get("download_mbps")),
+                    (240, "Upload Mbps", "upload", speed.get("upload_mbps")),
+                    (396, "Ping ms (speedtest idle)", "ping", speed.get("latency_ms"))]
         live_phase = (live or {}).get("phase") if testing_live else None
         for cx, caption, key, value in cols:
             is_live = live_phase == key
@@ -313,6 +331,8 @@ class Renderer:
             self._progress_bar(draw, (14, 152, self.w - 14, 164), frac if live_phase in ("download", "upload") else None,
                                BLUE if live_phase == "download" else CYAN if live_phase == "upload" else AMBER, t,
                                f"{name} {pct}".strip())
+        elif self.survey:
+            pass
         else:
             if speed.get("partial"):
                 self._text(draw, (self.w - 10, 164), "partial result", 11, AMBER, anchor="rb")
@@ -375,6 +395,13 @@ class Renderer:
             err = display_note
         if err:
             self._text(draw, (8, y), err, 13, err_col, max_w=self.w - 16)
+        elif router and not self.survey and router.get("cell_5g_rsrp", router.get("cell_rsrp")) is not None:
+            rsrp = router.get("cell_5g_rsrp", router.get("cell_rsrp"))
+            sinr = router.get("cell_5g_sinr", router.get("cell_sinr"))
+            band = router.get("cell_5g_band") or router.get("cell_band") or "-"
+            pci = router.get("cell_5g_pci", router.get("cell_pci"))
+            self._text(draw, (8, y), f"Cell {band}  RSRP {fmt_num(rsrp, 0)} dBm  SINR {fmt_num(sinr, 0)} dB  PCI {pci if pci is not None else '-'}",
+                       13, CYAN, max_w=self.w - 16)
 
         # Buttons: Start/Stop (wide), Cycle interval, Details
         by0, by1 = 258, 312

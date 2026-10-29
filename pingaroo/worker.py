@@ -478,6 +478,9 @@ class Worker:
             return interrupted("connectivity")
         if not conn.internet_ok:
             return finish("CONNECTIVITY_FAILED", "connectivity", conn.summary)
+        if not cfg["speedtest"].get("enabled", True):
+            detail["speedtest_skipped"] = True
+            return finish("SUCCESS", "", "")
 
         # ---- stage 6: speed test, with path re-checks around it
         pre = self.backend.wifi_state(iface, ssid)

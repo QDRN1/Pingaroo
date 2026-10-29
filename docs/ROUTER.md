@@ -175,3 +175,25 @@ RSRP).
 - Neighbour-cell measurements, unless the Askey UI happens to return them.
 - Anything while the Pi is on the home Wi-Fi: the router's LAN is only reachable
   when the Pi is on Kangaroo Labs.
+
+## Site Survey With the Pi
+
+Turn the Pi into a signal meter to find the best place for the gateway:
+
+```bash
+sudo pingaroo survey on && sudo pingaroo labels roof "window south" "window north" desk && sudo pingaroo label desk && sudo systemctl restart pingaroo && sudo pingaroo start
+```
+
+Survey mode runs a 30-second cycle with no speed test (no cellular data burned) and
+shows RSRP, SINR and RSRQ from the gateway as the three big numbers on the main
+screen, with band, PCI and cell id underneath. Carry the gateway and the Pi
+together (the Pi must stay on the gateway's Wi-Fi), at each spot tap **Details >
+Next Label** to tag the location, wait two or three cycles, move on. The CSV then
+has RSRP/SINR per label; `pingaroo export` summarises them per location. Watch SINR
+more than RSRP: a spot with RSRP -90 and SINR 15 beats one with RSRP -80 and SINR 2.
+
+Restore normal testing afterwards:
+
+```bash
+sudo pingaroo survey off && sudo systemctl restart pingaroo
+```

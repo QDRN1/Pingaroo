@@ -187,6 +187,7 @@ If Wi-Fi does not connect, see `docs/NETWORK.md`.
 | Remember the current Wi-Fi as the management (home) network | `sudo pingaroo wifi --home-current` |
 | Move the radio to the home or test network | `pingaroo wifi --switch home` / `--switch test` (also the Home Wi-Fi / Test Wi-Fi button in Details) |
 | Excel export with per-label summary | `pingaroo export` then `scp` the printed path |
+| Site survey (30 s cycles, no speed test, RSRP/SINR on screen) | `sudo pingaroo survey on`, label spots with `sudo pingaroo labels roof "window south" desk`, `sudo pingaroo survey off` to restore |
 | Router cellular data | `sudo pingaroo router-password`, `sudo pingaroo router-probe <path>`, see `docs/ROUTER.md` |
 | Change the interval | `sudo pingaroo interval 300 && sudo systemctl restart pingaroo` |
 | Pin or unpin a speed-test server | `speedtest -L`, then `sudo pingaroo server 18531` or `sudo pingaroo server auto` |

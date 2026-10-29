@@ -236,3 +236,20 @@ class Splash(unittest.TestCase):
         f = Fonts(cfg["display"]["font"], cfg["display"]["font_bold"])
         for t in (0.0, 0.5, 1.3):
             self.assertEqual(render_splash(480, 320, t, f).size, (480, 320))
+
+
+class SurveyScreen(unittest.TestCase):
+    def test_survey_shows_signal_values(self):
+        cfg = test_config()
+        cfg["speedtest"]["enabled"] = False
+        r = Renderer(cfg)
+        snap = sample_data.sample_snapshot()["success_waiting"]
+        img, hits = r.render_main(snap, {})
+        self.assertEqual(img.size, (480, 320))
+        self.assertEqual(sorted(h.action for h in hits), ["cycle_interval", "details", "toggle_run"])
+
+    def test_normal_mode_cell_line(self):
+        r = Renderer(test_config())
+        snap = sample_data.sample_snapshot()["success_waiting"]
+        img, _ = r.render_main(snap, {})
+        self.assertEqual(img.size, (480, 320))
