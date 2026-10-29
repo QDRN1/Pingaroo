@@ -229,9 +229,9 @@ class Renderer:
             dest = self.home_ssid if snap["switching"] == "home" else self.ssid
             wifi_txt, wifi_col = f"Switching to {dest or snap['switching']}", AMBER
         elif wifi.get("connected"):
-            wifi_txt, wifi_col = f"Connected: {wifi.get('ssid')}", GREEN
+            wifi_txt, wifi_col = wifi.get("ssid") or "connected", GREEN
         elif home and wifi.get("ip"):
-            wifi_txt, wifi_col = f"Home: {wifi.get('ssid')}", BLUE
+            wifi_txt, wifi_col = f"{wifi.get('ssid')} (home)", BLUE
         elif phase == "Connecting" and running:
             wifi_txt, wifi_col = f"Connecting: {target}", AMBER
         elif wifi.get("associated") and not wifi.get("ip"):
