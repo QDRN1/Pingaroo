@@ -135,7 +135,7 @@ class MainActivity : AppCompatActivity() {
         updater = Updater(this)
         gateway = GatewayClient(prefs.gatewayUrl) { wifi.network }
 
-        footer.text = "Pingaroo Mobile v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})  ·  Designed by Collin · QDRN"
+        footer.text = "Pingaroo Mobile v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})  ·  Designed by Collin"
         footer.setOnClickListener { showAbout() }
 
         val group = findViewById<MaterialButtonToggleGroup>(R.id.sourceGroup)
@@ -587,7 +587,7 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this).setTitle("Pingaroo Mobile")
             .setMessage("Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})\nInstalled $built\n" +
                 "Device ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE}\n\n" +
-                "Designed by Collin · QDRN\nSource: github.com/QDRN1/Pingaroo\n\n" +
+                "Designed by Collin\n\n" +
                 "Gateway source reads the AT&T Internet Air (NCM1120) over its Wi-Fi, bound to the Wi-Fi network even when Android routes other traffic over mobile data. Phone source reads this phone's radio; it is a proxy, not the gateway.\n\nSampling runs only while the app is on screen.")
             .setPositiveButton("OK", null).show()
     }
@@ -602,7 +602,6 @@ class MainActivity : AppCompatActivity() {
         val toneSw = Switch(this).apply { text = "Audio tone follows signal quality"; isChecked = prefs.tone }
         val keepSw = Switch(this).apply { text = "Keep screen on"; isChecked = prefs.keepScreenOn }
         val autoSw = Switch(this).apply { text = "Check for updates on launch"; isChecked = prefs.autoUpdate }
-        val token = EditText(this).apply { hint = "GitHub token (only if the repo is private)"; setText(updater.token) }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(pad(TextView(this@MainActivity).apply { text = "Gateway"; setTextColor(Thresholds.AMBER) }))
@@ -610,15 +609,12 @@ class MainActivity : AppCompatActivity() {
             addView(pad(TextView(this@MainActivity).apply { text = "Poll interval"; setTextColor(Thresholds.AMBER) }))
             addView(pad(poll))
             addView(pad(toneSw)); addView(pad(keepSw)); addView(pad(autoSw))
-            addView(pad(TextView(this@MainActivity).apply { text = "Updates"; setTextColor(Thresholds.AMBER) }))
-            addView(pad(token))
         }
         AlertDialog.Builder(this).setTitle("Settings").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Save") { _, _ ->
                 prefs.gatewayUrl = url.text.toString(); gateway = GatewayClient(prefs.gatewayUrl) { wifi.network }
                 for (i in 0 until poll.childCount) { val rb = poll.getChildAt(i) as RadioButton; if (rb.isChecked) prefs.pollMs = rb.tag as Long }
                 prefs.tone = toneSw.isChecked; prefs.keepScreenOn = keepSw.isChecked; prefs.autoUpdate = autoSw.isChecked
-                updater.token = token.text.toString()
                 applyKeepScreenOn(); tick(); restartLoop()
             }
             .setNegativeButton("Cancel", null).show()
@@ -637,8 +633,6 @@ class MainActivity : AppCompatActivity() {
                 } else if (manual) {
                     Toast.makeText(this@MainActivity, "Up to date (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
                 }
-            } catch (e: Updater.AuthRequired) {
-                if (manual) askToken()
             } catch (e: Exception) {
                 if (manual) Toast.makeText(this@MainActivity, "Update check failed: ${e.message}", Toast.LENGTH_LONG).show()
             }
@@ -666,8 +660,6 @@ class MainActivity : AppCompatActivity() {
                         progress.setMessage("Opening installer…")
                         progress.dismiss()
                         startActivity(updater.installIntent(apk))
-                    } catch (e: Updater.AuthRequired) {
-                        progress.dismiss(); askToken()
                     } catch (e: Exception) {
                         progress.dismiss()
                         AlertDialog.Builder(this@MainActivity).setTitle("Update failed").setMessage("${e.javaClass.simpleName}: ${e.message}")
@@ -679,12 +671,4 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun askToken() {
-        val input = EditText(this).apply { hint = "GitHub token"; setText(updater.token) }
-        AlertDialog.Builder(this).setTitle("GitHub access needed")
-            .setMessage("The repo is private. Paste a fine-grained token with Contents: read. It is stored only on this phone.")
-            .setView(input)
-            .setPositiveButton("Save") { _, _ -> updater.token = input.text.toString(); checkForUpdate(manual = true) }
-            .setNegativeButton("Cancel", null).show()
-    }
 }

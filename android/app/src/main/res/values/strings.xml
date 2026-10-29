@@ -9,6 +9,6 @@
     <string name="snapshot">Save Snapshot</string>
     <string name="snapshot_title">Where are you?</string>
     <string name="snapshot_hint">e.g. roof, window south, desk</string>
-    <string name="credit">Designed by Collin · QDRN</string>
+    <string name="credit">Designed by Collin</string>
     <string name="update">Update</string>
 </resources>

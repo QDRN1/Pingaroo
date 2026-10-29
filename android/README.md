@@ -40,7 +40,7 @@ two sources:
   full detail, remove, share.
 - Menu (☰): Snapshots, Share CSV, Settings, New session, Check for updates, About.
 - Settings: gateway URL, poll interval (1/2/5 s), audio tone that follows signal
-  quality (for walking without looking), keep screen on, auto update check, GitHub token.
+  quality (for walking without looking), keep screen on, auto update check.
 - Error states explain themselves: permission missing or location off get a tap-to-fix.
 - Version and build number in the footer and on the boot screen; label, source and
   settings persist across launches.

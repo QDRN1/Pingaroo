@@ -14,52 +14,32 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Self-update from the Pingaroo GitHub repo.
- *
- * Reads android/releases/version.json, compares versionCode with this build, downloads
- * the APK into the cache and hands it to the system installer.  Works unauthenticated
- * if the repo is public (raw.githubusercontent.com) and with a GitHub token if it is
- * private (api.github.com contents API with raw media type).
+ * Self-update from the public Pingaroo GitHub repo: reads android/releases/version.json,
+ * compares versionCode with this build, downloads the APK into the cache and hands it to
+ * the system installer.
  */
 class Updater(private val ctx: Context) {
     data class Info(val versionCode: Int, val versionName: String, val apkPath: String, val notes: String)
 
-    private val prefs = ctx.getSharedPreferences("pingaroo", Context.MODE_PRIVATE)
-    var token: String
-        get() = prefs.getString("gh_token", "") ?: ""
-        set(v) { prefs.edit().putString("gh_token", v.trim()).apply() }
-
-    private val owner = "QDRN1"
-    private val repo = "Pingaroo"
-    private val branch = "main"
+    private val base = "https://raw.githubusercontent.com/QDRN1/Pingaroo/main/"
     private val manifestPath = "android/releases/version.json"
 
-    class AuthRequired : Exception("GitHub token required (repo is private)")
-
-    private fun open(path: String, raw: Boolean): HttpURLConnection {
-        val url = if (token.isNotEmpty())
-            URL("https://api.github.com/repos/$owner/$repo/contents/$path?ref=$branch")
-        else
-            URL("https://raw.githubusercontent.com/$owner/$repo/$branch/$path")
-        val c = (url.openConnection() as HttpURLConnection).apply {
+    private fun open(path: String): HttpURLConnection {
+        val c = (URL(base + path).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10000
             readTimeout = 60000
-            setRequestProperty("User-Agent", "pingaroo-mobile")
-            if (token.isNotEmpty()) {
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Accept", if (raw) "application/vnd.github.raw+json" else "application/vnd.github.raw+json")
-                setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-            }
+            useCaches = false
+            setRequestProperty("User-Agent", "pingaroo-mobile/" + BuildConfig.VERSION_NAME)
+            setRequestProperty("Cache-Control", "no-cache")
         }
         val code = c.responseCode
-        if (code == 401 || code == 403) { c.disconnect(); throw AuthRequired() }
-        if (code == 404) { c.disconnect(); throw IllegalStateException(if (token.isEmpty()) "not found on GitHub (private repo? set a token in Settings)" else "not found: $path") }
+        if (code == 404) { c.disconnect(); throw IllegalStateException("$path not found on GitHub") }
         if (code >= 400) { c.disconnect(); throw IllegalStateException("HTTP $code fetching $path") }
         return c
     }
 
     suspend fun check(): Info = withContext(Dispatchers.IO) {
-        val c = open(manifestPath, raw = true)
+        val c = open(manifestPath)
         val text = try { c.inputStream.bufferedReader().readText() } finally { c.disconnect() }
         val j = JSONObject(text)
         Info(j.getInt("versionCode"), j.getString("versionName"), j.getString("apk"), j.optString("notes", ""))
@@ -67,14 +47,15 @@ class Updater(private val ctx: Context) {
 
     fun isNewer(info: Info): Boolean = info.versionCode > BuildConfig.VERSION_CODE
 
+    /** onProgress gets 0..100 when the size is known, else -1 per megabyte; always on the main thread. */
     suspend fun download(info: Info, onProgressRaw: (Int) -> Unit): File = withContext(Dispatchers.IO) {
         val main = Handler(Looper.getMainLooper())
-        var lastPct = -1
-        val onProgress: (Int) -> Unit = { pct -> if (pct != lastPct) { lastPct = pct; main.post { onProgressRaw(pct) } } }
+        var lastPct = -2
+        val onProgress: (Int) -> Unit = { pct -> if (pct != lastPct || pct == -1) { lastPct = pct; main.post { onProgressRaw(pct) } } }
         val dir = File(ctx.cacheDir, "updates").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
         val out = File(dir, "pingaroo-mobile-${info.versionCode}.apk")
-        val c = open(info.apkPath, raw = true)
+        val c = open(info.apkPath)
         try {
             val total = c.contentLengthLong
             c.inputStream.use { inp ->
