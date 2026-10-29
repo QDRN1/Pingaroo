@@ -224,23 +224,28 @@ class Renderer:
         # Network rows
         y = 40
         home = bool(self.home_ssid) and wifi.get("ssid") == self.home_ssid and self.home_ssid != self.ssid
+        target = self.ssid
         if snap.get("switching"):
-            wifi_txt, wifi_col = f"Switching to {snap['switching']} Wi-Fi", AMBER
+            dest = self.home_ssid if snap["switching"] == "home" else self.ssid
+            wifi_txt, wifi_col = f"Switching to {dest or snap['switching']}", AMBER
         elif wifi.get("connected"):
-            wifi_txt, wifi_col = "Connected", GREEN
+            wifi_txt, wifi_col = f"Connected: {wifi.get('ssid')}", GREEN
         elif home and wifi.get("ip"):
-            wifi_txt, wifi_col = f"Home ({wifi.get('ssid')})", BLUE
+            wifi_txt, wifi_col = f"Home: {wifi.get('ssid')}", BLUE
         elif phase == "Connecting" and running:
-            wifi_txt, wifi_col = "Connecting", AMBER
+            wifi_txt, wifi_col = f"Connecting: {target}", AMBER
+        elif wifi.get("associated") and not wifi.get("ip"):
+            wifi_txt, wifi_col = f"No IP yet: {wifi.get('ssid') or '?'}", AMBER
         elif wifi.get("associated"):
-            wifi_txt, wifi_col = f"Other SSID ({wifi.get('ssid') or '?'})", AMBER
+            wifi_txt, wifi_col = f"Other: {wifi.get('ssid') or '?'}", AMBER
         else:
-            wifi_txt, wifi_col = "Disconnected", RED
+            wifi_txt, wifi_col = f"Not connected (target {target})", RED
         self._icon_wifi(draw, 8, y + 1, signal_bars(wifi.get("signal_dbm")) if wifi.get("associated") else 0, wifi_col)
         self._text(draw, (36, y), "Wi-Fi", 15, MUTED)
-        self._text(draw, (90, y), wifi_txt, 15, wifi_col, bold=True, max_w=180)
-        if wifi.get("signal_dbm") is not None and wifi.get("associated"):
-            self._text(draw, (276, y + 2), f"{wifi['signal_dbm']} dBm", 12, MUTED)
+        dbm_txt = f"{wifi['signal_dbm']} dBm" if (wifi.get("signal_dbm") is not None and wifi.get("associated")) else ""
+        self._text(draw, (90, y), wifi_txt, 15, wifi_col, bold=True, max_w=(236 if dbm_txt else 250))
+        if dbm_txt:
+            self._text(draw, (334, y + 2), dbm_txt, 12, MUTED)
         ip = wifi.get("ip") or "No IP"
         self._text(draw, (self.w - 8, y), ip, 15, TEXT if wifi.get("ip") else RED, bold=True, anchor="ra", max_w=130)
 
@@ -373,8 +378,15 @@ class Renderer:
 
         rows: list[tuple[str, str, tuple]] = []
         rows.append(("WI-FI LINK", "", AMBER))
-        rows.append(("SSID", v(wifi.get("ssid")) + ("  [test network]" if wifi.get("ssid") == self.ssid else
-                                                     "  [home network]" if wifi.get("ssid") and wifi.get("ssid") == self.home_ssid else ""), TEXT))
+        same_net = bool(self.home_ssid) and self.home_ssid == self.ssid
+        if wifi.get("associated"):
+            tag = ("  [test network]" if wifi.get("ssid") == self.ssid else
+                   "  [home network]" if wifi.get("ssid") and wifi.get("ssid") == self.home_ssid else "  [other network]")
+            rows.append(("Connected SSID", v(wifi.get("ssid")) + tag, GREEN if wifi.get("connected") else TEXT))
+        else:
+            rows.append(("Connected SSID", f"not connected (target {self.ssid})", RED))
+        rows.append(("Test network", self.ssid + ("  (same as home: run setup-wifi.sh)" if same_net else ""), AMBER if same_net else TEXT))
+        rows.append(("Home network", v(self.home_ssid), TEXT))
         rows.append(("Interface", v(snap.get("interface")) + (f" ({snap.get('interface_note')})" if snap.get("interface_note") else ""), TEXT))
         rows.append(("BSSID", v(wifi.get("bssid")), TEXT))
         rows.append(("Signal", v(wifi.get("signal_dbm"), " dBm") + "  (Wi-Fi link, not cellular)", TEXT))
@@ -388,7 +400,6 @@ class Renderer:
         rows.append(("Router DNS (DHCP)", v(", ".join(wifi.get("dhcp_dns") or [])), TEXT))
         rows.append(("IPv6", v(", ".join(wifi.get("ipv6") or [])), TEXT))
         rows.append(("Public IP (last test)", v(speed.get("public_ip")), TEXT))
-        rows.append(("Home Wi-Fi profile", v(self.home_ssid), TEXT))
 
         rows.append(("CELLULAR (FROM ROUTER)", "", AMBER))
         if router and not router.get("error") and any(k.startswith("cell_") and router.get(k) is not None for k in router):
@@ -514,12 +525,19 @@ class Renderer:
         by0, by1 = 262, 312
         wifi = snap.get("wifi") or {}
         on_home = bool(self.home_ssid) and wifi.get("ssid") == self.home_ssid
+        same_net = bool(self.home_ssid) and self.home_ssid == self.ssid
         self._button(draw, hits, (8, by0, 92, by1), "Back", "back", BTN_NEUTRAL, 16)
         self._button(draw, hits, (100, by0, 172, by1), "Up", "page_up", BTN_NEUTRAL, 16)
         self._button(draw, hits, (180, by0, 252, by1), "Down", "page_down", BTN_NEUTRAL, 16)
         self._button(draw, hits, (260, by0, 356, by1), "Next Label", "next_label", BTN_NEUTRAL, 14)
-        self._button(draw, hits, (364, by0, 472, by1), "Test Wi-Fi" if on_home else "Home Wi-Fi", "switch_wifi",
-                     (40, 90, 150), 14)
+        if not self.home_ssid or same_net:
+            # Nothing to switch between yet: show why instead of a button that reconnects the same network.
+            draw.rounded_rectangle((364, by0, 472, by1), radius=10, fill=(40, 46, 60))
+            self._text(draw, (418, by0 + 18), "No test net" if same_net else "No home net", 12, MUTED, bold=True, anchor="mm")
+            self._text(draw, (418, by0 + 36), "setup-wifi.sh" if same_net else "wifi --home-current", 10, MUTED, anchor="mm")
+        else:
+            self._button(draw, hits, (364, by0, 472, by1), "Test Wi-Fi" if on_home else "Home Wi-Fi", "switch_wifi",
+                         (40, 90, 150), 14)
         return img, hits, pages
 
     def render_message(self, title: str, lines: list[str], color=TEXT) -> Image.Image:

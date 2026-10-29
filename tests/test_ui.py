@@ -32,6 +32,7 @@ class Layout(unittest.TestCase):
 
     def test_details_pages(self):
         snap = sample_data.sample_snapshot()["success_waiting"]
+        self.r.home_ssid = "LAN Down Under"
         img, hits, pages = self.r.render_details(snap, sample_data.sample_storage("x"), sample_data.sample_extra(), 0)
         self.assertGreaterEqual(pages, 2)
         self.assertEqual(sorted(h.action for h in hits), ["back", "next_label", "page_down", "page_up", "switch_wifi"])
@@ -39,7 +40,7 @@ class Layout(unittest.TestCase):
             self.assertGreaterEqual(h.y1 - h.y0, 48)
         rows = self.r.details_lines(snap, sample_data.sample_storage("x"), sample_data.sample_extra())
         keys = [k for k, _, _ in rows]
-        for key in ("SSID", "BSSID", "Signal", "Gateway", "Public IP (last test)", "DNS", "Server",
+        for key in ("Connected SSID", "Test network", "Home network", "BSSID", "Signal", "Gateway", "Public IP (last test)", "DNS", "Server",
                     "Recorded test traffic", "Free disk", "Log directory", "Clock synced (NTP)"):
             self.assertIn(key, keys)
         texts = " ".join(v for _, v, _ in rows)
@@ -190,3 +191,25 @@ class ControllerBehaviour(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WifiSwitchButton(unittest.TestCase):
+    def test_hidden_until_test_and_home_differ(self):
+        cfg = test_config()
+        snap = sample_data.sample_snapshot()["success_waiting"]
+        r = Renderer(cfg)                      # no home ssid configured
+        _, hits, _ = r.render_details(snap, {}, {}, 0)
+        self.assertNotIn("switch_wifi", [h.action for h in hits])
+        r.home_ssid = r.ssid                   # same network for both
+        _, hits, _ = r.render_details(snap, {}, {}, 0)
+        self.assertNotIn("switch_wifi", [h.action for h in hits])
+        r.home_ssid = "LAN Down Under"
+        _, hits, _ = r.render_details(snap, {}, {}, 0)
+        self.assertIn("switch_wifi", [h.action for h in hits])
+
+    def test_main_names_target_when_disconnected(self):
+        cfg = test_config()
+        r = Renderer(cfg)
+        snap = sample_data.sample_snapshot()["idle"]
+        img, _ = r.render_main(snap, {})
+        self.assertEqual(img.size, (480, 320))
