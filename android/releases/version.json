@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
-  "versionName": "1.6",
+  "versionCode": 8,
+  "versionName": "1.7",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Gateway bound to Wi-Fi (fixes offline-while-connected), 3-miss hysteresis, instant source switch, RSRP-only verdict, LTE-anchor identity, radio debug dump"
+  "notes": "Both mode: gateway + phone together with delta RSRP/SINR and same-cell check; single-line date and time"
 }
