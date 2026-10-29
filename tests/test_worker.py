@@ -154,8 +154,8 @@ class CycleOutcomes(unittest.TestCase):
 
     def test_wifi_drop_during_speedtest_is_route_failed(self):
         b = FakeBackend()
-        # state calls: initial, pre-speedtest, post-speedtest
-        b.states = [connected_state(), connected_state(), disconnected_state()]
+        # reads: start-time, cycle-initial, pre-speedtest, post-speedtest
+        b.states = [connected_state(), connected_state(), connected_state(), disconnected_state()]
         row, h = self.run_one(b)
         try:
             self.assertEqual(row["status"], "ROUTE_FAILED")
@@ -178,7 +178,8 @@ class CycleOutcomes(unittest.TestCase):
 
     def test_recovery_on_later_cycle(self):
         b = FakeBackend()
-        b.states = [disconnected_state(), connected_state()]
+        # reads: start-time (disc), cycle1-initial (disc), cycle2-initial (connected)
+        b.states = [disconnected_state(), disconnected_state(), connected_state()]
         b.connect_results = [(False, disconnected_state(), "SSID not found")]
         h = WorkerHarness(b)
         try:
@@ -228,6 +229,38 @@ class Scheduling(unittest.TestCase):
             self.assertTrue(wait_until(lambda: h.state.phase == Phase.WAITING, 3))
             self.assertTrue(wait_until(lambda: len(h.rows()) >= 2, 5))
             self.assertEqual(h.rows()[1]["status"], "CONNECTIVITY_FAILED")
+        finally:
+            h.close()
+
+
+class StartHonorsCurrentNetwork(unittest.TestCase):
+    def test_start_on_home_tests_home(self):
+        b = FakeBackend()
+        b.states = [connected_state(ssid="LAN Down Under", ip="192.168.7.11")]
+        cfg = test_config()
+        cfg["wifi"]["home_profile"] = "preconfigured"
+        cfg["wifi"]["home_ssid"] = "LAN Down Under"
+        h = WorkerHarness(b, cfg)
+        try:
+            h.state.active_target = "test"           # default
+            h.worker.start_session()
+            self.assertEqual(h.state.active_target, "home")
+            self.assertTrue(wait_until(lambda: len(h.rows()) >= 1, 5))
+            self.assertEqual(h.rows()[0]["ssid"], "LAN Down Under")
+        finally:
+            h.close()
+
+    def test_start_on_test_tests_test(self):
+        b = FakeBackend()
+        b.states = [connected_state()]               # Kangaroo Labs
+        cfg = test_config()
+        cfg["wifi"]["home_profile"] = "preconfigured"
+        cfg["wifi"]["home_ssid"] = "LAN Down Under"
+        h = WorkerHarness(b, cfg)
+        try:
+            h.state.active_target = "home"
+            h.worker.start_session()
+            self.assertEqual(h.state.active_target, "test")
         finally:
             h.close()
 

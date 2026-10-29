@@ -423,6 +423,36 @@ def cmd_splash(args) -> int:
     return 0
 
 
+def cmd_band(args) -> int:
+    """Lock the test Wi-Fi profile to 2.4 GHz, 5 GHz, or auto, then reconnect.
+    On the AT&T NCM1120 the router admin page is reachable only on 2.4 GHz, while
+    5 GHz gives higher throughput; this picks the trade-off."""
+    from . import shell, netinfo
+    cfg = _cfg(args)
+    name = cfg["wifi"]["connection_name"]
+    if args.choice is None:
+        res = shell.run(["nmcli", "-t", "-g", "802-11-wireless.band", "connection", "show", name], timeout=8)
+        cur = res.stdout.strip() or "(auto)"
+        iface, _ = netinfo.pick_interface(cfg["wifi"]["interface"])
+        st = netinfo.wifi_state(iface, cfg["wifi"]["ssid"])
+        print(f"profile band setting: {cur}")
+        print(f"currently associated: band={st.band or '-'} channel={st.channel} signal={st.signal_dbm} dBm")
+        print("set with: pingaroo band 2.4 | 5 | auto")
+        return 0
+    _need_root("changing the Wi-Fi band")
+    band = {"2.4": "bg", "2": "bg", "5": "a", "auto": "", "": ""}[args.choice]
+    shell.run(["nmcli", "connection", "modify", name, "802-11-wireless.band", band], timeout=8)
+    res = shell.run(["nmcli", "-w", "45", "connection", "up", name], timeout=50)
+    label = {"bg": "2.4 GHz", "a": "5 GHz", "": "auto"}[band]
+    if res.ok:
+        print(f"{name} locked to {label} and reconnected")
+        if band == "bg":
+            print("Note: 2.4 GHz lowers the speed-test ceiling; use it for router stats, 5 GHz for throughput.")
+    else:
+        print(f"band set to {label}, but reconnect failed: {(res.stderr or res.stdout).strip()[:120]}")
+    return 0 if res.ok else 1
+
+
 def cmd_config(args) -> int:
     cfg = _cfg(args)
     path = cfg.pop("_path")
@@ -772,6 +802,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--seconds", type=float, default=4.0)
     s.add_argument("--out", default=None, help="write PNG frames here instead of drawing")
     s.set_defaults(func=cmd_splash)
+
+    s = sub.add_parser("band", help="lock the test Wi-Fi to 2.4/5 GHz or auto (NCM1120 admin needs 2.4)")
+    s.add_argument("choice", nargs="?", choices=["2.4", "2", "5", "auto"])
+    s.set_defaults(func=cmd_band)
 
     s = sub.add_parser("config", help="print the effective configuration")
     s.set_defaults(func=cmd_config)

@@ -152,6 +152,18 @@ class Worker:
         """Begin a new session and run the first cycle immediately.  Returns False if
         already running (duplicate start)."""
         with self._start_lock:
+            # Test whatever network the Pi is on right now: if it is associated to the
+            # home SSID, run against home; if to the test SSID, run against test.
+            w = self.cfg["wifi"]
+            try:
+                cur = self.backend.wifi_state(self.state.interface, w["ssid"]).ssid
+            except Exception:
+                cur = ""
+            with self.state.lock:
+                if cur and w.get("home_ssid") and cur == w["home_ssid"]:
+                    self.state.active_target = "home"
+                elif cur and cur == w["ssid"]:
+                    self.state.active_target = "test"
             with self.state.lock:
                 if self.state.running:
                     return False
