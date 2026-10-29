@@ -31,6 +31,10 @@ The API was captured from the gateway web UI. A ready-to-use block is in
   `GetNvInfo` (firmware, product id, uptime), `GetStatistic` (data volumes).
 - Example values seen on this unit: band N77, RSRP -72 dBm, RSRQ -9 dB, SINR ~2 dB,
   RSSI -63 dBm, PCI 265, TAC 17939, cell id 83691327, APN 5gcbroadband, 5G+.
+- In 5G NSA the gateway reports signal only for the NR carrier (`cell_5g_*`
+  columns). The LTE anchor block carries the band (`B2`) but blank RSRP/RSRQ/SINR and
+  no EARFCN, so `cell_rsrp`, `cell_rsrq`, `cell_sinr` and `cell_earfcn` stay empty on
+  this device. `cell_bandwidth_mhz` holds the router's raw bandwidth code, not MHz.
 - The sector is not exposed directly. The gNB/cell split from the GCI 83691327:
   with a common cell-per-site factor the GCI yields the gNB id and sector index
   (your RF engineering can confirm the factor for AT&T NSA).

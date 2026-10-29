@@ -44,4 +44,5 @@ cell_rssi          = "nr5g_rssi"
 cell_pci           = "nr5g_pci"
 cell_tac           = "nr5g_tac"
 cell_cell_id       = "nr5g_gci"
-cell_bandwidth_mhz = "nrbandw"
+cell_bandwidth_mhz = "nrbandw"      # router's raw NR bandwidth code, not MHz
+cell_band          = "data.0.band"  # LTE anchor band (e.g. B2); its RSRP/RSRQ/SINR are not reported by this firmware
