@@ -81,12 +81,14 @@ class Updater(private val ctx: Context) {
                 out.outputStream().use { o ->
                     val buf = ByteArray(64 * 1024)
                     var done = 0L
+                    var lastMb = -1L
                     while (true) {
                         val n = inp.read(buf)
                         if (n < 0) break
                         o.write(buf, 0, n)
                         done += n
                         if (total > 0) onProgress((done * 100 / total).toInt())
+                        else { val mb = done / 1_000_000; if (mb != lastMb) { lastMb = mb; onProgress(-1) } }
                     }
                 }
             }

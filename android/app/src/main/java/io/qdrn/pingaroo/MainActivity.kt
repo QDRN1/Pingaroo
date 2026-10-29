@@ -148,6 +148,7 @@ class MainActivity : AppCompatActivity() {
                 gatewayMisses = 0
                 last = null; lastAt = 0L
                 buildTiles()
+                clearSignalTiles()
                 verdict.set("SWITCHING", Thresholds.AMBER, 0, "Reading from ${when (source) { "gateway" -> "the gateway"; "phone" -> "the phone radio"; else -> "gateway and phone" }}…")
                 restartLoop()
             }
@@ -331,10 +332,19 @@ class MainActivity : AppCompatActivity() {
         else -> " ▬"
     }
 
+    private fun clearSignalTiles() {
+        tile("rsrp").set("RSRP", "-", "dBm", Thresholds.MUTED); tile("sinr").set("SINR", "-", "dB", Thresholds.MUTED)
+        tile("rsrq").set("RSRQ", "-", "dB", Thresholds.MUTED); tile("rssi").set("RSSI", "-", "dBm", Thresholds.MUTED)
+        for (k in listOf("tech", "band", "pci", "cell", "tac", "arfcn", "bw", "apn", "wan", "level", "operator"))
+            tile(k).set(k.uppercase().replace("CELL", "CELL ID").replace("BW", "BANDWIDTH").replace("WAN", "WAN IP"), "-", "", Thresholds.MUTED, big = false)
+        sectionLte.visibility = View.GONE; tilesLte.visibility = View.GONE
+    }
+
     private fun render(s: Sample) {
         if (s.error.isNotEmpty()) {
             val (title, hint) = errorPresentation(s)
             verdict.set(title, Thresholds.RED, 0, hint)
+            clearSignalTiles()
             status.text = ""
             return
         }
@@ -522,6 +532,7 @@ class MainActivity : AppCompatActivity() {
         m.menu.add(0, 5, 4, "Check for updates")
         m.menu.add(0, 6, 5, "About")
         m.menu.add(0, 7, 6, "Radio debug dump")
+        m.menu.add(0, 8, 7, "Gateway probe")
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 1 -> startActivity(Intent(this, SnapshotsActivity::class.java))
@@ -532,6 +543,7 @@ class MainActivity : AppCompatActivity() {
                 5 -> checkForUpdate(manual = true)
                 6 -> showAbout()
                 7 -> showRadioDebug()
+                8 -> showGatewayProbe()
             }
             true
         }
@@ -543,6 +555,18 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Clears the session stats, best spot and the snapshot list, and starts a new CSV file. Existing CSV files stay on the phone.")
             .setPositiveButton("Clear") { _, _ -> stats.reset(); SnapshotStore.clear(); spark.clear(); logger.newFile(); updateSpots(); renderStats() }
             .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun showGatewayProbe() {
+        val waiting = AlertDialog.Builder(this).setTitle("Gateway probe").setMessage("Testing ${prefs.gatewayUrl} over Wi-Fi…").setCancelable(false).show()
+        lifecycleScope.launch {
+            val text = try { GatewayProbe.run(this@MainActivity, prefs.gatewayUrl, wifi.network, wifi.ssid) } catch (e: Exception) { "probe failed: $e" }
+            waiting.dismiss()
+            AlertDialog.Builder(this@MainActivity).setTitle("Gateway probe").setMessage(text)
+                .setPositiveButton("Share") { _, _ ->
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }, "Share probe"))
+                }.setNegativeButton("Close", null).show()
+        }
     }
 
     private fun showRadioDebug() {
@@ -622,20 +646,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun installUpdate(info: Updater.Info) {
+        if (!packageManager.canRequestPackageInstalls()) {
+            AlertDialog.Builder(this).setTitle("Allow installs first")
+                .setMessage("Android needs permission for Pingaroo Mobile to install updates. On the next screen turn on \"Allow from this source\", then come back and tap the update banner again.")
+                .setPositiveButton("Open setting") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                }
+                .setNegativeButton("Cancel", null).show()
+            return
+        }
         AlertDialog.Builder(this)
             .setTitle("Install v${info.versionName}?")
             .setMessage((info.notes.ifEmpty { "A newer build is on GitHub." }) + "\n\nAndroid will ask you to confirm the install.")
             .setPositiveButton("Download") { _, _ ->
+                val progress = AlertDialog.Builder(this).setTitle("Downloading v${info.versionName}").setMessage("Starting…").setCancelable(false).show()
                 lifecycleScope.launch {
                     try {
-                        updateBanner.visibility = View.VISIBLE
-                        val apk = updater.download(info) { pct -> updateBanner.post { updateBanner.text = "Downloading v${info.versionName}: $pct%" } }
-                        updateBanner.text = "Downloaded. Opening installer…"
+                        val apk = updater.download(info) { pct -> progress.setMessage(if (pct >= 0) "$pct%" else "downloading…") }
+                        progress.setMessage("Opening installer…")
+                        progress.dismiss()
                         startActivity(updater.installIntent(apk))
                     } catch (e: Updater.AuthRequired) {
-                        askToken()
+                        progress.dismiss(); askToken()
                     } catch (e: Exception) {
-                        updateBanner.text = "Update failed: ${e.message}"
+                        progress.dismiss()
+                        AlertDialog.Builder(this@MainActivity).setTitle("Update failed").setMessage("${e.javaClass.simpleName}: ${e.message}")
+                            .setPositiveButton("OK", null).show()
                     }
                 }
             }
