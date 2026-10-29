@@ -1,5 +1,6 @@
 package io.qdrn.pingaroo
 
+import android.net.Network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -7,23 +8,26 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Reads cellular status from the AT&T Internet Air (NCM1120) gateway over its Wi-Fi.
- * The status endpoints answer without a session; only the LAN address is contacted.
+ * Reads cellular status from the AT&T Internet Air (NCM1120) gateway over Wi-Fi.
+ * Every request is bound to the Wi-Fi Network when one is known, so it never leaks
+ * onto mobile data when Android has demoted the Wi-Fi for lacking internet.
  */
-class GatewayClient(private val baseUrl: String = "http://192.168.1.1") {
+class GatewayClient(private val baseUrl: String = "http://192.168.1.1", private val wifi: () -> Network? = { null }) {
 
     private var slowCache: JSONObject? = null
     private var slowCacheAt = 0L
 
-    private fun get(path: String, timeoutMs: Int = 3000): JSONObject {
+    private fun get(path: String, timeoutMs: Int = 2500): JSONObject {
         val url = URL(baseUrl.trimEnd('/') + path)
-        val conn = (url.openConnection() as HttpURLConnection).apply {
+        val raw = wifi()?.openConnection(url) ?: url.openConnection()
+        val conn = (raw as HttpURLConnection).apply {
             connectTimeout = timeoutMs
             readTimeout = timeoutMs
             requestMethod = "GET"
+            useCaches = false
             setRequestProperty("Accept", "application/json, */*")
             setRequestProperty("X-Requested-With", "XMLHttpRequest")
-            setRequestProperty("User-Agent", "pingaroo-mobile/1.0")
+            setRequestProperty("User-Agent", "pingaroo-mobile/" + BuildConfig.VERSION_NAME)
         }
         try {
             val code = conn.responseCode
@@ -44,15 +48,12 @@ class GatewayClient(private val baseUrl: String = "http://192.168.1.1") {
             val endc = get("/cgi-bin/GetENDCInfo")
             val now = System.currentTimeMillis()
             if (slowCache == null || now - slowCacheAt > 30_000) {
+                slowCacheAt = now                       // back off even if these fail
                 val merged = JSONObject()
                 for (p in listOf("/cgi-bin/GetLTEStatus", "/cgi-bin/GetLTEBasicSetting", "/cgi-bin/GetWanIp")) {
-                    try {
-                        val j = get(p)
-                        for (k in j.keys()) merged.put(k, j.get(k))
-                    } catch (_: Exception) { }
+                    try { val j = get(p, 2000); for (k in j.keys()) merged.put(k, j.get(k)) } catch (_: Exception) { }
                 }
-                slowCache = merged
-                slowCacheAt = now
+                if (merged.length() > 0) slowCache = merged
             }
             val slow = slowCache ?: JSONObject()
             val anchor = endc.optJSONArray("data")?.optJSONObject(0)
@@ -74,6 +75,7 @@ class GatewayClient(private val baseUrl: String = "http://192.168.1.1") {
                 lteBand = anchor?.optString("band", "") ?: "",
                 ltePci = anchor?.intOrNull("pci"),
                 lteCellId = anchor?.optString("gci", "")?.toLongOrNull(),
+                lteTac = anchor?.intOrNull("tac"),
                 lteRsrp = anchor?.intOrNull("rsrp"),
                 lteRsrq = anchor?.intOrNull("rsrq"),
                 lteRssnr = anchor?.intOrNull("sinr"),

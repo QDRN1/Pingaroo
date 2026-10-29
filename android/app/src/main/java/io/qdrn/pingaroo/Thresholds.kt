@@ -25,7 +25,17 @@ object Thresholds {
     /** Verdict from SINR first, RSRP second. */
     fun verdict(rsrp: Int?, sinr: Int?): Pair<String, Int> {
         if (rsrp == null && sinr == null) return "NO SIGNAL DATA" to MUTED
-        val s = sinr ?: 10
+        if (sinr == null) {
+            // RSRP only: say so rather than inventing a quality figure
+            val r = rsrp!!
+            return when {
+                r >= -80 -> "STRONG (RSRP ONLY)" to GREEN
+                r >= -90 -> "OK (RSRP ONLY)" to LIME
+                r >= -100 -> "WEAK (RSRP ONLY)" to AMBER
+                else -> "VERY WEAK (RSRP ONLY)" to RED
+            }
+        }
+        val s = sinr
         val r = rsrp ?: -90
         return when {
             s >= 20 && r >= -85 -> "EXCELLENT" to GREEN

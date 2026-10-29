@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private var last: Sample? = null
     private var lastAt = 0L
     private var pendingUpdate: Updater.Info? = null
+    private var gatewayMisses = 0
     private val stats = SessionStats()
 
     private lateinit var verdict: VerdictView
@@ -114,7 +115,7 @@ class MainActivity : AppCompatActivity() {
         wifi = WifiWatcher(this)
         logger = CsvLogger(this)
         updater = Updater(this)
-        gateway = GatewayClient(prefs.gatewayUrl)
+        gateway = GatewayClient(prefs.gatewayUrl) { wifi.network }
 
         footer.text = "Pingaroo Mobile v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})  ·  Designed by Collin · QDRN"
         footer.setOnClickListener { showAbout() }
@@ -153,6 +154,11 @@ class MainActivity : AppCompatActivity() {
                             val raw = if (source == "gateway") gateway.fetch(label) else phone.fetch(label)
                             val loc = location.last
                             val sample = raw.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
+                            if (sample.source == "gateway" && sample.error.isNotEmpty()) {
+                                gatewayMisses++
+                                // keep the last good reading on screen through brief misses
+                                if (gatewayMisses < 3 && last != null && last!!.error.isEmpty()) { tick(); delay(prefs.pollMs); continue }
+                            } else gatewayMisses = 0
                             last = sample; lastAt = System.currentTimeMillis()
                             render(sample)
                             if (prefs.logging && sample.error.isEmpty()) { logger.append(sample); updateSpots() }
@@ -201,10 +207,12 @@ class MainActivity : AppCompatActivity() {
         contextLine.text = if (source == "gateway") {
             val ss = wifi.ssid
             val l = last
+            val gw = prefs.gatewayUrl.removePrefix("http://")
+            val retry = if (gatewayMisses in 1..2) " · retrying ($gatewayMisses)" else ""
             when {
                 !wifi.onWifi -> "Phone is not on Wi-Fi: join the gateway's network"
-                l != null && l.error.isEmpty() -> "Wi-Fi ${ss.ifEmpty { "?" }} · gateway ${prefs.gatewayUrl.removePrefix("http://")} · ${l.fetchMs ?: "-"} ms"
-                else -> "Wi-Fi ${ss.ifEmpty { "?" }} · gateway ${prefs.gatewayUrl.removePrefix("http://")} not answering"
+                l != null && l.error.isEmpty() -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw · ${l.fetchMs ?: "-"} ms$retry" + if (!wifi.validated) " · Wi-Fi has no internet (bound anyway)" else ""
+                else -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw not answering$retry"
             }
         } else {
             val l = last
@@ -457,7 +465,7 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})\nInstalled $built\n" +
                 "Device ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE}\n\n" +
                 "Designed by Collin · QDRN\nSource: github.com/QDRN1/Pingaroo\n\n" +
-                "Gateway source reads the AT&T Internet Air (NCM1120) over its Wi-Fi. Phone source reads this phone's radio; it is a proxy, not the gateway.")
+                "Gateway source reads the AT&T Internet Air (NCM1120) over its Wi-Fi, bound to the Wi-Fi network even when Android routes other traffic over mobile data. Phone source reads this phone's radio; it is a proxy, not the gateway.\n\nSampling runs only while the app is on screen.")
             .setPositiveButton("OK", null).show()
     }
 
@@ -484,7 +492,7 @@ class MainActivity : AppCompatActivity() {
         }
         AlertDialog.Builder(this).setTitle("Settings").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Save") { _, _ ->
-                prefs.gatewayUrl = url.text.toString(); gateway = GatewayClient(prefs.gatewayUrl)
+                prefs.gatewayUrl = url.text.toString(); gateway = GatewayClient(prefs.gatewayUrl) { wifi.network }
                 for (i in 0 until poll.childCount) { val rb = poll.getChildAt(i) as RadioButton; if (rb.isChecked) prefs.pollMs = rb.tag as Long }
                 prefs.tone = toneSw.isChecked; prefs.keepScreenOn = keepSw.isChecked; prefs.autoUpdate = autoSw.isChecked
                 updater.token = token.text.toString()

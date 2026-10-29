@@ -52,7 +52,8 @@ class Updater(private val ctx: Context) {
             }
         }
         val code = c.responseCode
-        if (code == 401 || code == 403 || code == 404) { c.disconnect(); throw AuthRequired() }
+        if (code == 401 || code == 403) { c.disconnect(); throw AuthRequired() }
+        if (code == 404) { c.disconnect(); throw IllegalStateException(if (token.isEmpty()) "not found on GitHub (private repo? set a token in Settings)" else "not found: $path") }
         if (code >= 400) { c.disconnect(); throw IllegalStateException("HTTP $code fetching $path") }
         return c
     }
@@ -71,6 +72,7 @@ class Updater(private val ctx: Context) {
         var lastPct = -1
         val onProgress: (Int) -> Unit = { pct -> if (pct != lastPct) { lastPct = pct; main.post { onProgressRaw(pct) } } }
         val dir = File(ctx.cacheDir, "updates").apply { mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
         val out = File(dir, "pingaroo-mobile-${info.versionCode}.apk")
         val c = open(info.apkPath, raw = true)
         try {
