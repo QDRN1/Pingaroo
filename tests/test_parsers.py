@@ -223,3 +223,37 @@ class WifiCommand(unittest.TestCase):
             self.assertEqual(cfg["wifi"]["connection_name"], "preconfigured")
             rc = cli.main(["--config", path, "wifi", "--ssid", "Kangaroo Labs"])
             self.assertEqual(config.load(path)["wifi"]["connection_name"], "Kangaroo Labs")
+
+
+class TouchDecoding(unittest.TestCase):
+    """ads7846 ordering: BTN_TOUCH=1 arrives before the new touch's ABS_X/ABS_Y."""
+
+    def _tap(self, dec, rx, ry, t=0.0):
+        out = []
+        out += dec.feed(dec.EV_KEY, dec.BTN_TOUCH, 1, t)        # press, stale coords
+        out += dec.feed(dec.EV_ABS, dec.ABS_X, rx, t)
+        out += dec.feed(dec.EV_ABS, dec.ABS_Y, ry, t)
+        out += dec.feed(dec.EV_SYN, 0, 0, t)
+        out += dec.feed(dec.EV_ABS, dec.ABS_X, rx + 5, t + 0.05)  # tiny jitter
+        out += dec.feed(dec.EV_SYN, 0, 0, t + 0.05)
+        out += dec.feed(dec.EV_KEY, dec.BTN_TOUCH, 0, t + 0.1)
+        out += dec.feed(dec.EV_SYN, 0, 0, t + 0.1)
+        return out
+
+    def test_press_uses_fresh_coordinates(self):
+        from crwb.touch import TouchDecoder
+        dec = TouchDecoder(Calibration(480, 320, 0, 4095, 0, 4095, False, False, False))
+        first = self._tap(dec, 400, 400)
+        second = self._tap(dec, 3600, 3600, t=1.0)
+        kinds = [e.kind for e in second]
+        self.assertEqual(kinds, ["down", "move", "up"])
+        down, _, up = second
+        self.assertGreater(down.x, 400, "press must not carry the previous touch position")
+        self.assertLess(abs(down.x - up.x), 5)
+        self.assertEqual([e.kind for e in first], ["down", "move", "up"])
+
+    def test_release_without_coords(self):
+        from crwb.touch import TouchDecoder
+        dec = TouchDecoder(Calibration(480, 320, 0, 4095, 0, 4095, False, False, False))
+        out = dec.feed(dec.EV_KEY, dec.BTN_TOUCH, 1, 0) + dec.feed(dec.EV_KEY, dec.BTN_TOUCH, 0, 0)
+        self.assertEqual([e.kind for e in out], ["up"])

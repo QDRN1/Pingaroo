@@ -368,12 +368,14 @@ def cmd_check_touch(args) -> int:
     q: "queue.Queue" = queue.Queue()
     reader = TouchReader(path, Calibration.from_config(cfg), q)
     reader.start()
-    print(f"Touch the screen for {args.seconds} s; mapped coordinates print below (Ctrl+C to stop).")
+    print(f"Touch the screen for {args.seconds} s; press/release coordinates print below (Ctrl+C to stop).")
     end = time.monotonic() + args.seconds
     try:
         while time.monotonic() < end:
             try:
                 ev = q.get(timeout=0.5)
+                if ev.kind == "move" and not args.moves:
+                    continue
                 print(f"{ev.kind:<5} x={ev.x:>3} y={ev.y:>3}")
             except queue.Empty:
                 if reader.error:
@@ -571,6 +573,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("check-touch", help="print mapped touch coordinates")
     s.add_argument("--seconds", type=int, default=20)
+    s.add_argument("--moves", action="store_true", help="also print move events")
     s.set_defaults(func=cmd_check_touch)
 
     s = sub.add_parser("calibrate-touch", help="4-point touch calibration (stop the service first)")

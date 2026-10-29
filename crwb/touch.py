@@ -88,6 +88,59 @@ def find_touch_device(configured: str, name_match: str) -> tuple[str, str]:
     return "", "no touch device found"
 
 
+class TouchDecoder:
+    """Turns raw evdev (type, code, value) triples into TouchEvents.
+
+    The ads7846 driver reports BTN_TOUCH=1 *before* the first ABS_X/ABS_Y of a new
+    touch, so the press is emitted at the SYN_REPORT that follows, once fresh
+    coordinates are in hand.  Releases use the last known position.
+    """
+
+    EV_SYN, EV_KEY, EV_ABS = 0x00, 0x01, 0x03
+    ABS_X, ABS_Y, BTN_TOUCH = 0x00, 0x01, 0x14A
+
+    def __init__(self, calibration: Calibration) -> None:
+        self.cal = calibration
+        self.raw_x: int | None = None
+        self.raw_y: int | None = None
+        self.down = False
+        self._pending_down = False
+        self._fresh = False      # coordinates updated since the pending press
+
+    def feed(self, ev_type: int, code: int, value: int, t: float) -> list[TouchEvent]:
+        out: list[TouchEvent] = []
+        if ev_type == self.EV_ABS:
+            if code == self.ABS_X:
+                self.raw_x, self._fresh = value, True
+            elif code == self.ABS_Y:
+                self.raw_y, self._fresh = value, True
+        elif ev_type == self.EV_KEY and code == self.BTN_TOUCH:
+            if value == 1 and not self.down:
+                self._pending_down = True
+                self._fresh = False
+            elif value == 0 and (self.down or self._pending_down):
+                self.down = False
+                self._pending_down = False
+                if self.raw_x is not None and self.raw_y is not None:
+                    x, y = self.cal.map(self.raw_x, self.raw_y)
+                    out.append(TouchEvent("up", x, y, t))
+                else:
+                    out.append(TouchEvent("up", -1, -1, t))
+        elif ev_type == self.EV_SYN:
+            if self.raw_x is None or self.raw_y is None:
+                return out
+            if self._pending_down and self._fresh:
+                self._pending_down = False
+                self.down = True
+                x, y = self.cal.map(self.raw_x, self.raw_y)
+                out.append(TouchEvent("down", x, y, t))
+            elif self.down and self._fresh:
+                x, y = self.cal.map(self.raw_x, self.raw_y)
+                out.append(TouchEvent("move", x, y, t))
+            self._fresh = False
+        return out
+
+
 class TouchReader(threading.Thread):
     """Reads evdev events and emits mapped TouchEvents onto a queue."""
 
@@ -124,32 +177,13 @@ class TouchReader(threading.Thread):
                 self.raw_range = (ax.min, ax.max, ay.min, ay.max)
             except Exception:
                 pass
-            raw_x = raw_y = None
-            down = False
+            decoder = TouchDecoder(self.cal)
             try:
                 for ev in dev.read_loop():
                     if self._stop.is_set():
                         break
-                    if ev.type == ecodes.EV_ABS:
-                        if ev.code == ecodes.ABS_X:
-                            raw_x = ev.value
-                        elif ev.code == ecodes.ABS_Y:
-                            raw_y = ev.value
-                    elif ev.type == ecodes.EV_KEY and ev.code == ecodes.BTN_TOUCH:
-                        if ev.value == 1:
-                            down = True
-                            pending = "down"
-                        else:
-                            down = False
-                            pending = "up"
-                        if raw_x is not None and raw_y is not None:
-                            x, y = self.cal.map(raw_x, raw_y)
-                            self.out.put(TouchEvent(pending, x, y, time.monotonic()))
-                        elif pending == "up":
-                            self.out.put(TouchEvent("up", -1, -1, time.monotonic()))
-                    elif ev.type == ecodes.EV_SYN and down and raw_x is not None and raw_y is not None:
-                        x, y = self.cal.map(raw_x, raw_y)
-                        self.out.put(TouchEvent("move", x, y, time.monotonic()))
+                    for te in decoder.feed(ev.type, ev.code, ev.value, time.monotonic()):
+                        self.out.put(te)
             except OSError as exc:
                 self.error = f"touch device error: {exc.strerror}"
                 time.sleep(1)
