@@ -285,7 +285,7 @@ def https_probe(url: str, expect_status: int, expect_body: str, interface: str,
             raw.connect((address, port))
             with ctx.wrap_socket(raw, server_hostname=host) as tls:
                 tls.settimeout(timeout)
-                req = (f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: crwb/1.0\r\n"
+                req = (f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: pingaroo/1.0\r\n"
                        f"Accept: */*\r\nConnection: close\r\n\r\n")
                 tls.sendall(req.encode())
                 status, headers, body = _read_http_response(tls)

@@ -3,13 +3,13 @@ import tempfile
 import time
 import unittest
 
-from crwb import sample_data
-from crwb.app import UIController
-from crwb.display import HeadlessFramebuffer
-from crwb.storage import Storage
-from crwb.touch import TouchEvent
-from crwb.ui import Renderer
-from crwb.worker import Phase, Worker, WorkerState
+from pingaroo import sample_data
+from pingaroo.app import UIController
+from pingaroo.display import HeadlessFramebuffer
+from pingaroo.storage import Storage
+from pingaroo.touch import TouchEvent
+from pingaroo.ui import Renderer
+from pingaroo.worker import Phase, Worker, WorkerState
 from tests.fakes import FakeBackend, test_config, wait_until
 
 
@@ -34,7 +34,7 @@ class Layout(unittest.TestCase):
         snap = sample_data.sample_snapshot()["success_waiting"]
         img, hits, pages = self.r.render_details(snap, sample_data.sample_storage("x"), sample_data.sample_extra(), 0)
         self.assertGreaterEqual(pages, 2)
-        self.assertEqual(sorted(h.action for h in hits), ["back", "next_label", "page_down", "page_up"])
+        self.assertEqual(sorted(h.action for h in hits), ["back", "next_label", "page_down", "page_up", "switch_wifi"])
         for h in hits:
             self.assertGreaterEqual(h.y1 - h.y0, 48)
         rows = self.r.details_lines(snap, sample_data.sample_storage("x"), sample_data.sample_extra())
@@ -53,7 +53,7 @@ class Layout(unittest.TestCase):
         self.assertEqual(img.size, (480, 320))
 
     def test_unavailable_values_show_dash(self):
-        from crwb.ui import fmt_num
+        from pingaroo.ui import fmt_num
         self.assertEqual(fmt_num(None), "-")
         self.assertEqual(fmt_num("x"), "-")
 
@@ -111,13 +111,31 @@ class ControllerBehaviour(unittest.TestCase):
         self.tap(240, 120)
         self.assertFalse(self.state.running)
 
-    def test_drag_is_not_a_tap(self):
+    def test_press_inside_button_fires_immediately(self):
         b = self.button("toggle_run")
         t = time.monotonic()
         self.ctl.handle(TouchEvent("down", b.x0 + 10, b.y0 + 10, t))
+        self.assertTrue(self.state.running, "press inside the button must act without waiting for release")
         self.ctl.handle(TouchEvent("move", b.x0 + 60, b.y0 + 20, t + 0.1))
         self.ctl.handle(TouchEvent("up", b.x0 + 80, b.y0 + 20, t + 0.2))
+        self.assertTrue(self.state.running, "release of the same gesture must not toggle again")
+
+    def test_long_drag_from_outside_does_not_fire(self):
+        b = self.button("toggle_run")
+        t = time.monotonic()
+        self.ctl.handle(TouchEvent("down", 240, 100, t))              # outside any button
+        self.ctl.handle(TouchEvent("up", b.x0 + 20, b.y0 + 20, t + 0.3))  # released far away, inside button
         self.assertFalse(self.state.running)
+
+    def test_noisy_first_sample_then_button(self):
+        """First sample lands outside, later samples inside the button: must fire once."""
+        b = self.button("toggle_run")
+        t = time.monotonic()
+        self.ctl.handle(TouchEvent("down", b.x0 - 15, b.y0 - 5, t))   # just outside
+        self.ctl.handle(TouchEvent("move", b.x0 + 20, b.y0 + 20, t + 0.03))
+        self.assertTrue(self.state.running)
+        self.ctl.handle(TouchEvent("up", b.x0 + 22, b.y0 + 21, t + 0.1))
+        self.assertTrue(self.state.running)
 
     def test_details_and_back(self):
         d = self.button("details")

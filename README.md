@@ -1,6 +1,6 @@
-# Cellular Router Worker Bee
+# Pingaroo
 
-A small, self-contained test appliance for a Raspberry Pi 4B with a 3.5-inch 480x320
+A small, self-contained cellular-router test appliance for a Raspberry Pi 4B with a 3.5-inch 480x320
 touchscreen. It joins a cellular router's Wi-Fi, checks real internet reachability
 through that Wi-Fi only, runs an Ookla speed test, logs everything locally, waits
 300 seconds, and repeats until you tap Stop Testing.
@@ -82,15 +82,15 @@ sudo ./scripts/setup-display.sh && sudo reboot
 ```
 
 ```bash
-crwb check-display --test
+pingaroo check-display --test
 ```
 
 ```bash
-sudo crwb calibrate-touch
+sudo pingaroo calibrate-touch
 ```
 
 ```bash
-sudo systemctl start crwb && crwb status
+sudo systemctl start pingaroo && pingaroo status
 ```
 
 ### Path B: No Ethernet, SSH Over the Pi's Own Wi-Fi
@@ -102,7 +102,7 @@ on the Wi-Fi you are connected to now, then switch the test SSID as the last ste
 Point the app at the network you are on (reads the active NetworkManager profile):
 
 ```bash
-sudo crwb wifi --current
+sudo pingaroo wifi --current
 ```
 
 Attach the display (power off first), enable the overlay, reboot; SSH comes back on
@@ -113,19 +113,26 @@ sudo ./scripts/setup-display.sh && sudo reboot
 ```
 
 ```bash
-crwb check-display --test
+pingaroo check-display --test
 ```
 
 ```bash
-sudo crwb calibrate-touch
+sudo pingaroo calibrate-touch
 ```
 
 ```bash
-sudo systemctl start crwb && crwb status
+sudo systemctl start pingaroo && pingaroo status
 ```
 
-Tap Start Test or run `crwb start`. Cycles now run against your current Wi-Fi; the
+Tap Start Test or run `pingaroo start`. Cycles now run against your current Wi-Fi; the
 speed test will saturate the same link your SSH session uses but will not drop it.
+
+Before switching, remember the current network as the management network so the
+Home Wi-Fi button and `--switch home` know where to go back:
+
+```bash
+sudo pingaroo wifi --home-current
+```
 
 When ready to test the cellular router, run the Wi-Fi setup inside tmux. The script
 writes the WPA3 profile, points the config at it, then connects, which drops your
@@ -136,16 +143,29 @@ sudo apt install -y tmux && tmux
 ```
 
 ```bash
-sudo ./scripts/setup-wifi.sh && sudo systemctl restart crwb
+sudo ./scripts/setup-wifi.sh && sudo systemctl restart pingaroo
 ```
 
-From then on the Pi is on Kangaroo Labs. Reach it by SSH from a laptop joined to
-Kangaroo Labs (its IP is on the main screen), or use the touchscreen. When the
-router is off, NetworkManager falls back to your home Wi-Fi profile and SSH over
-that works again. To switch the test back to the home network at any time:
+From then on the Pi is on Kangaroo Labs. To get it back on the home network for SSH
+and log retrieval, tap **Details > Home Wi-Fi** on the screen (this stops the loop),
+or from a laptop joined to Kangaroo Labs:
 
 ```bash
-sudo nmcli connection up "<home profile name>" && sudo crwb wifi --current && sudo systemctl restart crwb
+pingaroo wifi --switch home
+```
+
+Start Test (or `pingaroo wifi --switch test`) moves it back to the router. At boot the
+router profile has the higher priority; when the router is off the Pi falls back to
+the home network on its own.
+
+Pull results onto your PC while the Pi is on the home network:
+
+```bash
+pingaroo export
+```
+
+```bash
+scp pingaroo@192.168.7.11:/var/lib/pingaroo/export/*.xlsx .
 ```
 
 If the display shows nothing or the touch axes are wrong, see `docs/DISPLAY.md`.
@@ -155,52 +175,62 @@ If Wi-Fi does not connect, see `docs/NETWORK.md`.
 
 | Task | Command |
 |---|---|
-| Service start / stop / restart | `sudo systemctl start crwb` / `stop` / `restart` |
-| Service status and log | `systemctl status crwb` and `journalctl -u crwb -n 50` |
-| Live app status | `crwb status` (add `--json` for everything) |
-| Start / stop the test loop (same as the buttons) | `crwb start` / `crwb stop` |
-| One diagnostic cycle in the foreground | `sudo systemctl stop crwb && sudo crwb once` |
-| Recent results | `crwb results -n 20` |
-| Recent events | `crwb events -n 50` |
-| Change the configuration label | `crwb label "Config B"` (applies at the next cycle) |
-| Show or change the SSID / profile under test | `crwb wifi`, `sudo crwb wifi --current`, `sudo crwb wifi --ssid "Kangaroo Labs"` |
-| Change the interval | `crwb interval 300 && sudo systemctl restart crwb` |
-| Pin or unpin a speed-test server | `speedtest -L`, then `crwb server 18531` or `crwb server auto` |
-| Screen sleep timeout | `crwb sleep 120`, `crwb sleep off`, then restart |
-| Autostart the loop at boot | `crwb autostart on` |
-| Wi-Fi and routing check | `crwb check-wifi` |
+| Service start / stop / restart | `sudo systemctl start pingaroo` / `stop` / `restart` |
+| Service status and log | `systemctl status pingaroo` and `journalctl -u pingaroo -n 50` |
+| Live app status | `pingaroo status` (add `--json` for everything) |
+| Start / stop the test loop (same as the buttons) | `pingaroo start` / `pingaroo stop` |
+| One diagnostic cycle in the foreground | `sudo systemctl stop pingaroo && sudo pingaroo once` |
+| Recent results | `pingaroo results -n 20` |
+| Recent events | `pingaroo events -n 50` |
+| Change the configuration label | `pingaroo label "Config B"` (applies at the next cycle) |
+| Show or change the SSID / profile under test | `pingaroo wifi`, `sudo pingaroo wifi --current`, `sudo pingaroo wifi --ssid "Kangaroo Labs"` |
+| Remember the current Wi-Fi as the management (home) network | `sudo pingaroo wifi --home-current` |
+| Move the radio to the home or test network | `pingaroo wifi --switch home` / `--switch test` (also the Home Wi-Fi / Test Wi-Fi button in Details) |
+| Excel export with per-label summary | `pingaroo export` then `scp` the printed path |
+| Router cellular data | `sudo pingaroo router-password`, `sudo pingaroo router-probe <path>`, see `docs/ROUTER.md` |
+| Change the interval | `pingaroo interval 300 && sudo systemctl restart pingaroo` |
+| Pin or unpin a speed-test server | `speedtest -L`, then `pingaroo server 18531` or `pingaroo server auto` |
+| Screen sleep timeout | `pingaroo sleep 120`, `pingaroo sleep off`, then restart |
+| Autostart the loop at boot | `pingaroo autostart on` |
+| Wi-Fi and routing check | `pingaroo check-wifi` |
 | WPA3 capability report | `./scripts/check-wpa3.sh` |
-| Raw touch coordinates | `sudo crwb check-touch` |
-| Effective configuration | `crwb config` |
-| Retrieve logs to a PC | `scp bee@workerbee:/var/lib/crwb/results.csv .` |
+| Raw touch coordinates | `sudo pingaroo check-touch` |
+| Effective configuration | `pingaroo config` |
+| Retrieve logs to a PC | `scp bee@workerbee:/var/lib/pingaroo/results.csv .` |
 
 ## Files
 
 | Path | Purpose |
 |---|---|
-| `/etc/crwb/config.toml` | Configuration (TOML, no secrets). Example: `config.example.toml` |
-| `/var/lib/crwb/results.csv` | One row per finished attempt, including failures and interruptions |
-| `/var/lib/crwb/events.jsonl` | Lifecycle events, per-probe diagnostics, raw speed-test JSON |
-| `/var/lib/crwb/results.<stamp>.csv` | Rotated logs (size-based, retention configurable) |
-| `/run/crwb/state.json` | Live state snapshot (1 Hz), read by `crwb status` |
-| `/opt/crwb` | Installed application |
+| `/etc/pingaroo/config.toml` | Configuration (TOML, no secrets). Example: `config.example.toml` |
+| `/var/lib/pingaroo/results.csv` | One row per finished attempt, including failures and interruptions |
+| `/var/lib/pingaroo/events.jsonl` | Lifecycle events, per-probe diagnostics, raw speed-test JSON |
+| `/var/lib/pingaroo/results.<stamp>.csv` | Rotated logs (size-based, retention configurable) |
+| `/run/pingaroo/state.json` | Live state snapshot (1 Hz), read by `pingaroo status` |
+| `/opt/pingaroo` | Installed application |
 | `/etc/NetworkManager/system-connections/Kangaroo Labs.nmconnection` | Wi-Fi profile with password, mode 600 |
 
-CSV columns and JSONL event types are listed in `docs/OPERATIONS.md`.
+CSV columns and JSONL event types are listed in `docs/OPERATIONS.md`. Cellular data
+from the router (RSRP, band, cell ID, APN and more) needs the router adapter in
+`docs/ROUTER.md`; the Pi cannot see the modem on its own.
 
 ## Screen
 
-Main screen (480x320, fits without scrolling): title and label, Wi-Fi status and the
-Wi-Fi IP (or "No IP"), internet status with the age of the last check, download /
-upload / speed-test idle latency, phase, countdown (MM:SS) during the wait, session
-counters, last-result timestamp or last error, a large Start Test / Stop Testing
+Main screen (480x320, fits without scrolling): title, label chip and date/time;
+Wi-Fi status with signal bars, dBm and the Wi-Fi IP (or "No IP"); internet status with
+the age of the last check; download / upload / speed-test idle latency; during a speed
+test the active value goes live in amber with a progress bar and percentage; phase
+with a spinner, countdown (MM:SS) and a countdown bar during the wait; session
+counters; last-result timestamp or last error; a large Start Test / Stop Testing
 button and a Details button. Old measurements are greyed and labelled "previous
-result" while a new test runs.
+result" while a new test runs. Taps act on press, so a button responds the moment the
+finger lands on it.
 
 Details view: Wi-Fi link (SSID, BSSID, dBm, band, channel, link rate), IP, gateway,
-router DNS, public IP, per-target ping, DNS and HTTPS outcomes, speed-test server,
-jitter and loss, session timing and counters, recorded test traffic, disk space,
-device and config paths. Back, Up, Down and Next Label buttons.
+router DNS, public IP, cellular data from the router when an adapter is configured,
+per-target ping, DNS and HTTPS outcomes, speed-test server, jitter and loss, session
+timing and counters, recorded test traffic, disk space, device and config paths.
+Back, Up, Down, Next Label and Home Wi-Fi / Test Wi-Fi buttons.
 
 The screen sleeps after 120 s without a touch (configurable, `0` disables). The first
 touch only wakes it. Testing, logging and Wi-Fi are unaffected by sleep. If the panel
@@ -221,7 +251,7 @@ python3 -m unittest discover -s tests -t .
 ```
 
 ```bash
-python3 -m crwb --config config.example.toml preview --out preview/
+python3 -m pingaroo --config config.example.toml preview --out preview/
 ```
 
 The suite uses a fake backend and fake speedtest scripts (`tests/fake_speedtest/`)

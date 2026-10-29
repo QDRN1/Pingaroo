@@ -2,8 +2,8 @@ import os
 import time
 import unittest
 
-from crwb import speedtest
-from crwb.shell import CancelToken
+from pingaroo import speedtest
+from pingaroo.shell import CancelToken
 from tests.fakes import test_config
 
 FAKES = os.path.join(os.path.dirname(__file__), "fake_speedtest")
@@ -19,7 +19,7 @@ def cfg_for(script: str, timeout: float = 5) -> dict:
 class SpeedtestRunner(unittest.TestCase):
     def test_success(self):
         phases = []
-        r = speedtest.run(cfg_for("success.sh"), "wlan0", CancelToken(), phases.append)
+        r = speedtest.run(cfg_for("success.sh"), "wlan0", CancelToken(), lambda k, i: phases.append(k))
         self.assertEqual(r.status, "SUCCESS", r.error)
         self.assertEqual(r.download_mbps, 87.4)
         self.assertEqual(r.upload_mbps, 21.9)

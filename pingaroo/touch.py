@@ -169,7 +169,7 @@ class TouchReader(threading.Thread):
     """Reads evdev events and emits mapped TouchEvents onto a queue."""
 
     def __init__(self, path: str, calibration: Calibration, out: "queue.Queue[TouchEvent]") -> None:
-        super().__init__(name="crwb-touch", daemon=True)
+        super().__init__(name="pingaroo-touch", daemon=True)
         self.path = path
         self.cal = calibration
         self.out = out

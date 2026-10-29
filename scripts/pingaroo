@@ -1,0 +1,4 @@
+#!/bin/sh
+# Wrapper so `pingaroo ...` works from any directory.
+export PYTHONPATH=/opt/pingaroo${PYTHONPATH:+:$PYTHONPATH}
+exec /usr/bin/python3 -m pingaroo "$@"

@@ -1,4 +1,4 @@
-"""Command line entry point: `crwb <command>`."""
+"""Command line entry point: `pingaroo <command>`."""
 
 from __future__ import annotations
 
@@ -43,8 +43,8 @@ def cmd_once(args) -> int:
     cfg = _cfg(args)
     lock = SingleInstance(os.path.join(cfg["logging"]["runtime_directory"], "lock"))
     if not lock.acquire():
-        print("The crwb service is running. Stop it first (sudo systemctl stop crwb) so two tests "
-              "do not overlap, or use `crwb start` to let the service run a cycle.", file=sys.stderr)
+        print("The pingaroo service is running. Stop it first (sudo systemctl stop pingaroo) so two tests "
+              "do not overlap, or use `pingaroo start` to let the service run a cycle.", file=sys.stderr)
         return 3
     try:
         storage = Storage(cfg)
@@ -209,7 +209,7 @@ def cmd_interval(args) -> int:
         print(f"interval_seconds = {_cfg(args)['app']['interval_seconds']}")
         return 0
     rc = _set(args, "app", "interval_seconds", int(args.seconds))
-    print("Restart the service to apply: sudo systemctl restart crwb")
+    print("Restart the service to apply: sudo systemctl restart pingaroo")
     return rc
 
 
@@ -231,7 +231,7 @@ def cmd_sleep(args) -> int:
         return 0
     value = 0 if str(args.seconds).lower() in ("off", "0", "disable", "disabled") else int(args.seconds)
     rc = _set(args, "display", "sleep_seconds", value)
-    print("Restart the service to apply: sudo systemctl restart crwb")
+    print("Restart the service to apply: sudo systemctl restart pingaroo")
     return rc
 
 
@@ -246,7 +246,24 @@ def cmd_wifi(args) -> int:
     """Show or set which SSID / NetworkManager profile the test uses."""
     from . import shell
     cfg = _cfg(args)
-    if args.current:
+    if args.switch:
+        target = args.switch
+        sf = StateFile(cfg["logging"]["runtime_directory"])
+        if sf.read() and sf.read().get("worker_alive"):
+            sf.push_control(f"switch:{target}")
+            print(f"asked the running service to switch to the {target} Wi-Fi (watch: pingaroo status)")
+            return 0
+        _need_root("switching Wi-Fi")
+        from .netinfo import pick_interface
+        profile = cfg["wifi"]["home_profile"] if target == "home" else cfg["wifi"]["connection_name"]
+        if not profile:
+            print("no home profile configured: run `sudo pingaroo wifi --home-current` while on the home Wi-Fi", file=sys.stderr)
+            return 1
+        iface, _ = pick_interface(cfg["wifi"]["interface"])
+        res = shell.run(["nmcli", "-w", "45", "connection", "up", profile, "ifname", iface], timeout=50)
+        print(res.stdout.strip() or res.stderr.strip())
+        return 0 if res.ok else 1
+    if args.current or args.home_current:
         res = shell.run(["nmcli", "-t", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active"], timeout=8)
         active = [l.split(":") for l in res.stdout.splitlines() if l.count(":") >= 2]
         wifi = [a for a in active if a[1] == "802-11-wireless"]
@@ -256,13 +273,20 @@ def cmd_wifi(args) -> int:
         profile, _, device = wifi[0][0].replace("\\:", ":"), wifi[0][1], wifi[0][2]
         res = shell.run(["nmcli", "-t", "-g", "802-11-wireless.ssid", "connection", "show", profile], timeout=8)
         ssid = res.stdout.strip().replace("\\:", ":") or profile
-        args.ssid, args.profile = ssid, profile
         print(f"active Wi-Fi: profile '{profile}' ssid '{ssid}' on {device}")
+        if args.home_current:
+            config_mod.set_value(cfg["_path"], "wifi", "home_profile", profile)
+            config_mod.set_value(cfg["_path"], "wifi", "home_ssid", ssid)
+            print(f"wifi.home_profile = {profile!r}, wifi.home_ssid = {ssid!r}  (management network)")
+            print("Restart the service to apply: sudo systemctl restart pingaroo")
+            return 0
+        args.ssid, args.profile = ssid, profile
     if args.ssid is None and args.profile is None:
         print(f"wifi.ssid            = {cfg['wifi']['ssid']}")
         print(f"wifi.connection_name = {cfg['wifi']['connection_name']}")
         print(f"wifi.interface       = {cfg['wifi']['interface'] or '(auto)'}")
-        print("Use: crwb wifi --current   |   crwb wifi --ssid NAME --profile NAME")
+        print(f"wifi.home_profile    = {cfg['wifi']['home_profile'] or '(not set)'}  ssid {cfg['wifi']['home_ssid'] or '-'}")
+        print("Use: --current | --home-current | --ssid NAME [--profile NAME] | --switch home|test")
         return 0
     path = cfg["_path"]
     if args.ssid is not None:
@@ -273,7 +297,75 @@ def cmd_wifi(args) -> int:
         config_mod.set_value(path, "wifi", "connection_name", args.ssid)
     cfg = config_mod.load(path)
     print(f"wifi.ssid = {cfg['wifi']['ssid']!r}, wifi.connection_name = {cfg['wifi']['connection_name']!r}  ({path})")
-    print("Restart the service to apply: sudo systemctl restart crwb")
+    print("Restart the service to apply: sudo systemctl restart pingaroo")
+    return 0
+
+
+def cmd_export(args) -> int:
+    from . import export
+    cfg = _cfg(args)
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        print("openpyxl missing: sudo apt install -y python3-openpyxl", file=sys.stderr)
+        return 1
+    rows = export.load_rows(cfg["logging"]["directory"])
+    if not rows:
+        print("no results to export")
+        return 1
+    out = args.out or os.path.join(cfg["logging"]["directory"], "export",
+                                   time.strftime("pingaroo-results-%Y%m%d-%H%M.xlsx"))
+    export.write_xlsx(rows, out)
+    print(f"wrote {len(rows)} rows to {out}")
+    try:
+        import socket
+        host = socket.gethostname()
+        print(f"copy to your PC:   scp {os.environ.get('SUDO_USER') or os.environ.get('USER', 'pingaroo')}@{host}.local:{out} .")
+    except Exception:
+        pass
+    return 0
+
+
+def cmd_router_password(args) -> int:
+    import getpass
+    _need_root("storing the router password")
+    cfg = _cfg(args)
+    path = cfg["router"]["password_file"]
+    pw = getpass.getpass("Router admin password (not echoed): ")
+    if not pw:
+        print("empty password, nothing written")
+        return 1
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(pw + "\n")
+    os.chmod(path, 0o600)
+    print(f"stored in {path} (root only)")
+    return 0
+
+
+def cmd_router_probe(args) -> int:
+    """Log in with the configured method and dump the JSON of the given paths (or the
+    configured status_paths).  Used to discover the router's API field names."""
+    from . import router
+    cfg = _cfg(args)
+    cfg["router"]["type"] = "http_json"
+    if args.paths:
+        cfg["router"]["status_paths"] = args.paths
+    if args.no_login:
+        cfg["router"]["login_path"] = ""
+    r = router.HttpJsonRouter(cfg)
+    err = r.login()
+    if err:
+        print(f"login: {err}", file=sys.stderr)
+    for path in cfg["router"]["status_paths"]:
+        status, raw = r._request(path)
+        text = raw.decode("utf-8", "replace")
+        print(f"=== GET {path} -> HTTP {status} ({len(raw)} bytes)")
+        try:
+            print(json.dumps(json.loads(text), indent=2)[:args.max_chars])
+        except ValueError:
+            print(text[:args.max_chars])
     return 0
 
 
@@ -508,14 +600,14 @@ def cmd_calibrate_touch(args) -> int:
             write({"swap_xy": swap, "invert_x": invert_x, "invert_y": invert_y,
                    "x_min": int(lo_x - sx * m), "x_max": int(hi_x + sx * m),
                    "y_min": int(lo_y - sy * m), "y_max": int(hi_y + sy * m)})
-            print("Next: sudo crwb calibrate-touch --corners   (refines the edges from corner taps)")
+            print("Next: sudo pingaroo calibrate-touch --corners   (refines the edges from corner taps)")
     except KeyboardInterrupt:
         print("cancelled")
         return 1
     finally:
         fb.blit(Image.new("RGB", (W, H), (0, 60, 0)))
         fb.close()
-    print("Restart the service to apply: sudo systemctl restart crwb")
+    print("Restart the service to apply: sudo systemctl restart pingaroo")
     return 0
 
 
@@ -545,9 +637,9 @@ def cmd_preview(args) -> int:
 # ---------------------------------------------------------------------- parser
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="crwb", description="Cellular Router Worker Bee")
+    p = argparse.ArgumentParser(prog="pingaroo", description="Pingaroo")
     p.add_argument("--config", "-c", default=None, help=f"config file (default {config_mod.DEFAULT_CONFIG_PATH})")
-    p.add_argument("--version", action="version", version=f"crwb {__version__}")
+    p.add_argument("--version", action="version", version=f"pingaroo {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("run", help="run the app (used by systemd)")
@@ -601,7 +693,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--current", action="store_true", help="use the Wi-Fi network the Pi is connected to right now")
     s.add_argument("--ssid", default=None)
     s.add_argument("--profile", default=None, help="NetworkManager connection name (defaults to the SSID)")
+    s.add_argument("--home-current", action="store_true", help="remember the Wi-Fi the Pi is on now as the management (home) network")
+    s.add_argument("--switch", choices=["home", "test"], default=None, help="move the radio to the home or test network now")
     s.set_defaults(func=cmd_wifi)
+
+    s = sub.add_parser("export", help="write an Excel workbook (results + per-label summary)")
+    s.add_argument("--out", default=None, help="output .xlsx path")
+    s.set_defaults(func=cmd_export)
+
+    s = sub.add_parser("router-password", help="store the router admin password (root-only file)")
+    s.set_defaults(func=cmd_router_password)
+
+    s = sub.add_parser("router-probe", help="fetch router status JSON for adapter discovery")
+    s.add_argument("paths", nargs="*", help="URL paths to GET (default: configured status_paths)")
+    s.add_argument("--no-login", action="store_true")
+    s.add_argument("--max-chars", type=int, default=6000)
+    s.set_defaults(func=cmd_router_probe)
 
     s = sub.add_parser("config", help="print the effective configuration")
     s.set_defaults(func=cmd_config)

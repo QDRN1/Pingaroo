@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 
 from . import clock, netinfo
+from .router import ROUTER_COLUMNS
 
 CSV_COLUMNS = [
     "session_id", "cycle_id", "label", "start_time", "end_time", "duration_s", "status",
@@ -26,7 +27,7 @@ CSV_COLUMNS = [
     "download_mbps", "upload_mbps", "latency_ms", "jitter_ms", "packet_loss_pct",
     "download_bytes", "upload_bytes", "public_ip", "server_id", "server_name", "server_location",
     "server_host", "result_url", "speedtest_version", "speedtest_partial",
-]
+] + ROUTER_COLUMNS + ["router_error"]
 
 
 @dataclass
@@ -178,7 +179,7 @@ class Storage:
 
 
 class StateFile:
-    """Atomic JSON snapshot in the runtime directory for `crwb status`."""
+    """Atomic JSON snapshot in the runtime directory for `pingaroo status`."""
 
     def __init__(self, runtime_dir: str) -> None:
         self.dir = runtime_dir

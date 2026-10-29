@@ -1,4 +1,0 @@
-#!/bin/sh
-# Wrapper so `crwb ...` works from any directory.
-export PYTHONPATH=/opt/crwb${PYTHONPATH:+:$PYTHONPATH}
-exec /usr/bin/python3 -m crwb "$@"

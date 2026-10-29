@@ -69,7 +69,7 @@ association loops.
    - Use a USB Wi-Fi adapter with mainline SAE support (MediaTek MT7921AU or
      MT7612U) and set `[wifi] interface = "wlan1"`.
    - Switch the router to WPA2/WPA3 transitional for this test only, and put that in
-     the configuration label (`crwb label "Config A WPA2-transition"`) so results stay
+     the configuration label (`pingaroo label "Config A WPA2-transition"`) so results stay
      comparable. `sudo ./scripts/setup-wifi.sh --wpa2` writes a WPA2 profile. The app
      never changes security on its own.
 

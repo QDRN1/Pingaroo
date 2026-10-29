@@ -80,8 +80,8 @@ chown root:root "$FILE"
 unset PSK PSK2
 nmcli connection reload
 echo "Profile written to $FILE (root-only)."
-if command -v crwb >/dev/null; then
-  crwb wifi --ssid "$SSID" --profile "$NAME" || true
+if command -v pingaroo >/dev/null; then
+  pingaroo wifi --ssid "$SSID" --profile "$NAME" || true
 fi
 
 echo "== Driver / supplicant WPA3 capability"
@@ -91,7 +91,7 @@ echo "== Attempting connection (45 s)"
 if nmcli -w 45 connection up "$NAME" ifname "$IFACE"; then
   nmcli -t -f GENERAL.STATE,IP4.ADDRESS,IP4.GATEWAY device show "$IFACE"
   iw dev "$IFACE" link | sed 's/^/   /'
-  echo "Connected. Run: crwb check-wifi"
+  echo "Connected. Run: pingaroo check-wifi"
 else
   echo "Connection failed. See docs/NETWORK.md 'WPA3 troubleshooting'. Useful:"
   echo "   journalctl -u NetworkManager -u wpa_supplicant -n 80 --no-pager"

@@ -6,12 +6,12 @@ import copy
 import time
 from typing import Callable
 
-from crwb.backend import Backend
-from crwb.config import DEFAULTS
-from crwb.netinfo import WifiState
-from crwb.probes import ConnectivityResult, DnsResult, HttpsResult, PingResult
-from crwb.shell import CancelToken
-from crwb.speedtest import SpeedtestResult
+from pingaroo.backend import Backend
+from pingaroo.config import DEFAULTS
+from pingaroo.netinfo import WifiState
+from pingaroo.probes import ConnectivityResult, DnsResult, HttpsResult, PingResult
+from pingaroo.shell import CancelToken
+from pingaroo.speedtest import SpeedtestResult
 
 
 def test_config(**overrides) -> dict:
@@ -119,18 +119,26 @@ class FakeBackend(Backend):
         self.speed_active += 1
         self.max_speed_active = max(self.max_speed_active, self.speed_active)
         try:
-            on_phase("ping")
-            on_phase("download")
+            on_phase("ping", {"latency_ms": 41.3, "progress": 1.0})
+            on_phase("download", {"mbps": 50.0, "progress": 0.5})
             if self.speed_delay and cancel.wait(self.speed_delay):
                 return SpeedtestResult(status="INTERRUPTED", error="interrupted by Stop Testing", partial=True,
                                        download_mbps=12.0, download_bytes=1000)
-            on_phase("upload")
+            on_phase("upload", {"mbps": 20.0, "progress": 0.5})
             return copy.deepcopy(self._next(self.speed_results))
         finally:
             self.speed_active -= 1
 
     def speedtest_version(self, cfg):
         return "fake"
+
+    def router_info(self, cfg):
+        self.calls.append("router_info")
+        return {"cell_rsrp": -95, "cell_band": "n77", "cell_apn": "broadband"}
+
+    def activate_profile(self, profile, interface, timeout):
+        self.calls.append(f"activate:{profile}")
+        return True, ""
 
 
 def wait_until(pred: Callable[[], bool], timeout: float = 5.0, step: float = 0.02) -> bool:

@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-from crwb import clock, config, netinfo, probes, speedtest
-from crwb.shell import RunResult
-from crwb.touch import Calibration
+from pingaroo import clock, config, netinfo, probes, speedtest
+from pingaroo.shell import RunResult
+from pingaroo.touch import Calibration
 
 
 class PingParse(unittest.TestCase):
@@ -211,7 +211,7 @@ if __name__ == "__main__":
 
 class WifiCommand(unittest.TestCase):
     def test_wifi_sets_ssid_and_profile(self):
-        from crwb import cli
+        from pingaroo import cli
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "c.toml")
             with open(path, "w") as fh:
@@ -241,7 +241,7 @@ class TouchDecoding(unittest.TestCase):
         return out
 
     def test_press_uses_fresh_coordinates(self):
-        from crwb.touch import TouchDecoder
+        from pingaroo.touch import TouchDecoder
         dec = TouchDecoder(Calibration(480, 320, 0, 4095, 0, 4095, False, False, False))
         first = self._tap(dec, 400, 400)
         second = self._tap(dec, 3600, 3600, t=1.0)
@@ -253,7 +253,7 @@ class TouchDecoding(unittest.TestCase):
         self.assertEqual([e.kind for e in first], ["down", "move", "up"])
 
     def test_release_without_coords(self):
-        from crwb.touch import TouchDecoder
+        from pingaroo.touch import TouchDecoder
         dec = TouchDecoder(Calibration(480, 320, 0, 4095, 0, 4095, False, False, False))
         out = dec.feed(dec.EV_KEY, dec.BTN_TOUCH, 1, 0) + dec.feed(dec.EV_KEY, dec.BTN_TOUCH, 0, 0)
         self.assertEqual([e.kind for e in out], ["up"])
@@ -261,7 +261,7 @@ class TouchDecoding(unittest.TestCase):
 
 class CornerRefinement(unittest.TestCase):
     def _check(self, inverted):
-        from crwb.touch import refine_axis
+        from pingaroo.touch import refine_axis
         truth = Calibration(480, 320, 450, 3700, 280, 3520, False, False, inverted)
         wrong = Calibration(480, 320, 296, 3911, 22, 3837, False, False, inverted)
         # where taps at the true physical edges (raw values of truth's edges) land through `wrong`
@@ -287,7 +287,7 @@ class CornerRefinement(unittest.TestCase):
         self._check(True)
 
     def test_refine_on_real_numbers(self):
-        from crwb.touch import refine_axis
+        from pingaroo.touch import refine_axis
         # Collin's corner taps through the first calibration: x 24/447, y 30/294
         x_min, x_max = refine_axis(296, 3911, False, 480, (24 + 14) / 2, (447 + 447) / 2)
         y_min, y_max = refine_axis(22, 3837, True, 320, (38 + 28) / 2, (294 + 294) / 2)
@@ -300,3 +300,70 @@ class CornerRefinement(unittest.TestCase):
         self.assertLess(abs(x - 3), 4)
         self.assertLess(abs(y - 3), 4)
         self.assertEqual(old.map(int(raw_x), int(raw_y))[0], 19)
+
+
+class RouterAdapter(unittest.TestCase):
+    def test_dig_and_coerce(self):
+        from pingaroo.router import dig, _coerce
+        data = {"mobile": {"signal": {"rsrp": "-95 dBm", "cells": [{"pci": 301}]}}}
+        self.assertEqual(dig(data, "mobile.signal.rsrp"), "-95 dBm")
+        self.assertEqual(dig(data, "mobile.signal.cells.0.pci"), 301)
+        self.assertIsNone(dig(data, "mobile.nope"))
+        self.assertEqual(_coerce("-95 dBm"), -95)
+        self.assertEqual(_coerce("12.5"), 12.5)
+        self.assertEqual(_coerce("n77"), "n77")
+
+    def test_fetch_none_and_http(self):
+        import http.server, json as js, threading
+        from pingaroo import router
+        from tests.fakes import test_config
+        cfg = test_config()
+        self.assertEqual(router.fetch(cfg), {})
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(n).decode()
+                ok = "password=secret" in body
+                self.send_response(200 if ok else 401)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"token":"abc"}' if ok else b'{}')
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                if self.path == "/api/mobile":
+                    self.wfile.write(js.dumps({"signal": {"rsrp": "-97 dBm", "sinr": 9}, "band": "B66", "apn": "broadband"}).encode())
+                else:
+                    self.wfile.write(b'{"model": "NCM1120"}')
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                pw = os.path.join(d, "secret")
+                with open(pw, "w") as fh:
+                    fh.write("secret\n")
+                cfg["router"].update(type="http_json", base_url=f"http://127.0.0.1:{srv.server_port}",
+                                     password_file=pw, login_path="/login", login_method="form",
+                                     status_paths=["/api/mobile", "/api/system"],
+                                     fields={"cell_rsrp": "signal.rsrp", "cell_sinr": "signal.sinr", "cell_band": "band",
+                                             "cell_apn": "apn", "cell_firmware": "page:/api/system:model"})
+                out = router.fetch(cfg)
+                self.assertNotIn("error", out)
+                self.assertEqual(out["cell_rsrp"], -97)
+                self.assertEqual(out["cell_sinr"], 9)
+                self.assertEqual(out["cell_band"], "B66")
+                self.assertEqual(out["cell_firmware"], "NCM1120")
+                self.assertIn("/api/mobile", out["raw"])
+                with open(pw, "w") as fh:
+                    fh.write("wrong\n")
+                out = router.fetch(cfg)
+                self.assertIn("login HTTP 401", out.get("error", ""))
+        finally:
+            srv.shutdown()

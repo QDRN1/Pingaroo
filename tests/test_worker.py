@@ -5,11 +5,11 @@ import threading
 import time
 import unittest
 
-from crwb import config as config_mod
-from crwb.app import check_orphaned_cycle
-from crwb.speedtest import SpeedtestResult
-from crwb.storage import Storage
-from crwb.worker import Phase, Worker, WorkerState
+from pingaroo import config as config_mod
+from pingaroo.app import check_orphaned_cycle
+from pingaroo.speedtest import SpeedtestResult
+from pingaroo.storage import Storage
+from pingaroo.worker import Phase, Worker, WorkerState
 from tests.fakes import (FakeBackend, connected_state, disconnected_state, good_connectivity, good_speed,
                          test_config, wait_until)
 
@@ -365,3 +365,48 @@ class StorageFailures(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NetworkSwitch(unittest.TestCase):
+    def test_switch_home_stops_loop_and_activates_profile(self):
+        b = FakeBackend()
+        cfg = test_config()
+        cfg["wifi"]["home_profile"] = "preconfigured"
+        cfg["wifi"]["home_ssid"] = "LAN Down Under"
+        h = WorkerHarness(b, cfg)
+        try:
+            h.worker.start_session()
+            self.assertTrue(wait_until(lambda: h.state.phase == Phase.WAITING, 5))
+            self.assertTrue(h.worker.switch_network("home"))
+            self.assertTrue(wait_until(lambda: "activate:preconfigured" in b.calls, 5))
+            self.assertTrue(wait_until(lambda: not h.state.switching, 5))
+            self.assertFalse(h.state.running)
+            self.assertTrue(h.worker.switch_network("test"))
+            self.assertTrue(wait_until(lambda: "activate:Kangaroo Labs" in b.calls, 5))
+            self.assertTrue(wait_until(lambda: not h.state.switching, 5))
+            self.assertTrue(wait_until(lambda: [e["event"] for e in h.events()].count("network_switch") == 2, 5))
+        finally:
+            h.close()
+
+    def test_switch_without_home_profile_reports(self):
+        h = WorkerHarness(FakeBackend())
+        try:
+            self.assertFalse(h.worker.switch_network("home"))
+            self.assertIn("no home profile", h.state.switch_note)
+        finally:
+            h.close()
+
+    def test_router_info_recorded(self):
+        b = FakeBackend()
+        cfg = test_config()
+        cfg["router"]["type"] = "http_json"
+        h = WorkerHarness(b, cfg)
+        try:
+            h.worker.start_session()
+            self.assertTrue(wait_until(lambda: len(h.rows()) >= 1, 5))
+            row = h.rows()[0]
+            self.assertEqual(row["cell_rsrp"], "-95")
+            self.assertEqual(row["cell_apn"], "broadband")
+            self.assertIn("router_info", b.calls)
+        finally:
+            h.close()

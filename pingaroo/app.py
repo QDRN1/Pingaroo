@@ -70,6 +70,7 @@ class UIController:
         self.last_action_mono = 0.0
         self.consume_until_up = False
         self.down_pos: tuple[int, int] | None = None
+        self.down_fired = False
         self.hits = []
         self.last_frame: bytes | None = None
         self.sleep_note = ""
@@ -94,22 +95,39 @@ class UIController:
             return
         if ev.kind == "down":
             self.down_pos = (ev.x, ev.y)
+            self.down_fired = False
+            # Fire on press when the finger lands inside a button: feels immediate and
+            # does not depend on where a resistive panel reports the release.
+            if self._try_action(ev.x, ev.y, ev.t):
+                self.down_fired = True
+        elif ev.kind == "move":
+            if self.down_pos is not None and not self.down_fired:
+                # First samples of a resistive touch can be off; a later sample that
+                # lands in a button still counts.
+                if self._try_action(ev.x, ev.y, ev.t):
+                    self.down_fired = True
         elif ev.kind == "up":
             if self.down_pos is None:
                 return
-            dx = ev.x - self.down_pos[0] if ev.x >= 0 else 0
-            dy = ev.y - self.down_pos[1] if ev.y >= 0 else 0
-            x, y = self.down_pos
+            fired = self.down_fired
+            x0, y0 = self.down_pos
             self.down_pos = None
-            if math.hypot(dx, dy) > self.tap_max_move:
+            self.down_fired = False
+            if fired or ev.x < 0:
                 return
-            if ev.t - self.last_action_mono < self.debounce_s:
+            if math.hypot(ev.x - x0, ev.y - y0) > self.tap_max_move:
                 return
-            for hit in self.hits:
-                if hit.contains(x, y):
-                    self.last_action_mono = ev.t
-                    self.perform(hit.action)
-                    break
+            self._try_action(ev.x, ev.y, ev.t)
+
+    def _try_action(self, x: int, y: int, t: float) -> bool:
+        if t - self.last_action_mono < self.debounce_s:
+            return False
+        for hit in self.hits:
+            if hit.contains(x, y):
+                self.last_action_mono = t
+                self.perform(hit.action)
+                return True
+        return False
 
     def perform(self, action: str) -> None:
         if action == "toggle_run":
@@ -128,6 +146,11 @@ class UIController:
             self.page = max(0, self.page - 1)
         elif action == "page_down":
             self.page = min(self.pages - 1, self.page + 1)
+        elif action == "switch_wifi":
+            wifi = self.worker.state.wifi
+            home_ssid = self.cfg["wifi"].get("home_ssid", "")
+            target = "test" if (home_ssid and wifi.ssid == home_ssid) else "home"
+            self.worker.switch_network(target)
         elif action == "next_label":
             current = self.worker.state.label_override or self.worker.state.label
             if current in self.labels:
@@ -205,7 +228,7 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
     lcfg = cfg["logging"]
     lock = SingleInstance(os.path.join(lcfg["runtime_directory"], "lock"))
     if not lock.acquire():
-        print("another crwb instance is running (lock held)", file=sys.stderr)
+        print("another pingaroo instance is running (lock held)", file=sys.stderr)
         return 3
 
     storage = Storage(cfg)
@@ -298,7 +321,9 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
                 continue
             except queue.Empty:
                 pass
-            next_tick = time.monotonic() + refresh
+            with state.lock:
+                live_now = state.live is not None and state.running
+            next_tick = time.monotonic() + (min(refresh, 0.5) if live_now else refresh)
             cmd = statefile.pop_control()
             if cmd == "start":
                 if worker.start_session():
@@ -306,6 +331,8 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
             elif cmd == "stop":
                 if worker.stop_session():
                     storage.write_event("control", command="stop", source="cli")
+            elif cmd.startswith("switch:"):
+                worker.switch_network(cmd.split(":", 1)[1])
             controller.maybe_sleep(time.monotonic())
             controller.render()
             if touch_reader is not None and touch_reader.error:
@@ -317,6 +344,7 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
             snap["display"] = extra.get("display")
             snap["touch"] = extra.get("touch")
             snap["pid"] = os.getpid()
+            snap["interval_s"] = cfg["app"]["interval_seconds"]
             snap["time"] = clock.iso()
             statefile.write(snap)
             if not worker.is_alive() and not state.worker_crash:
@@ -335,8 +363,8 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
             try:
                 if controller.asleep:
                     fb.set_blank(False)
-                fb.blit(renderer.render_message("Worker Bee Stopped", ["The service is not running.",
-                                                                        "sudo systemctl start crwb"]))
+                fb.blit(renderer.render_message("Pingaroo Stopped", ["The service is not running.",
+                                                                        "sudo systemctl start pingaroo"]))
             except Exception:
                 pass
             fb.close()

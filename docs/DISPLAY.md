@@ -52,7 +52,7 @@ Expected (fbtft): `fb_ili9486 spi0.0: fbtft_property_value: ...`, `graphics fb1:
 (or `fb0` when no HDMI is attached), and `ads7846 spi0.1: touchscreen, irq N`.
 
 ```bash
-crwb check-display --test
+pingaroo check-display --test
 ```
 
 Draws red, green, blue and white bars on the top half and a yellow box with text on the
@@ -86,25 +86,25 @@ The ads7846 driver reports raw 12-bit coordinates. Axis orientation depends on h
 panel is rotated. Stop the service and run the 4-point calibration:
 
 ```bash
-sudo systemctl stop crwb
+sudo systemctl stop pingaroo
 ```
 
 ```bash
-sudo crwb calibrate-touch
+sudo pingaroo calibrate-touch
 ```
 
 Tap each cross once. The script derives `swap_xy`, `invert_x`, `invert_y` and the raw
-min/max, writes them into `/etc/crwb/config.toml` `[touch]`, and prints them.
+min/max, writes them into `/etc/pingaroo/config.toml` `[touch]`, and prints them.
 
 ```bash
-sudo crwb check-touch
+sudo pingaroo check-touch
 ```
 
 prints mapped coordinates for 20 s: top-left of the panel should read near `x=0 y=0`,
 bottom-right near `x=479 y=319`. Then:
 
 ```bash
-sudo systemctl start crwb
+sudo systemctl start pingaroo
 ```
 
 If taps feel offset by a few pixels, `xohms` in the overlay line (60 to 100 is typical

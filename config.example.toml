@@ -1,12 +1,12 @@
-# Cellular Router Worker Bee configuration
-# Install location: /etc/crwb/config.toml
+# Pingaroo configuration
+# Install location: /etc/pingaroo/config.toml
 # Every key is optional; omitted keys use the defaults shown here.
 # No passwords belong in this file. The Wi-Fi password lives only in
 # /etc/NetworkManager/system-connections/ (root-only keyfile).
 
 [app]
 # Label stamped on every result at cycle start. Change it any time; the next cycle
-# picks it up without a restart (crwb label "Config B").
+# picks it up without a restart (pingaroo label "Config B").
 label = "Config A"
 # Labels offered by the on-screen "Next Label" button in the Details view.
 labels = ["Config A", "Config B", "APN test"]
@@ -19,6 +19,10 @@ interval_seconds = 300
 ssid = "Kangaroo Labs"
 # NetworkManager connection profile name created by scripts/setup-wifi.sh.
 connection_name = "Kangaroo Labs"
+# Management (home) Wi-Fi for SSH and pulling logs. Set with: sudo pingaroo wifi --home-current
+# The on-screen "Home Wi-Fi" button and `pingaroo wifi --switch home|test` move the radio.
+home_profile = ""
+home_ssid = ""
 # Leave empty to auto-detect the Wi-Fi interface; set e.g. "wlan1" to override.
 interface = ""
 # One bounded connection attempt per cycle (association + DHCP).
@@ -48,6 +52,27 @@ timeout_seconds = 180
 bind_interface = true
 extra_args = []
 
+[router]
+# Cellular/modem data from the router's own web API. "none" records nothing.
+# "http_json": optional login, GET each status path, map CSV columns to JSON paths.
+# See docs/ROUTER.md for discovering the endpoints of the AT&T Internet Air (NCM1120).
+type = "none"
+base_url = "http://192.168.1.1"
+username = "attadmin"
+# Admin password lives only here (root, mode 600): sudo pingaroo router-password
+password_file = "/etc/pingaroo/router.secret"
+login_path = ""              # e.g. "/cgi-bin/login.cgi"; empty = no login step
+login_method = "form"        # form | json | basic
+login_fields = { username = "username", password = "password" }
+status_paths = []            # e.g. ["/api/mobile/status", "/api/system/info"]
+timeout_seconds = 8
+# column = "dotted.json.path"  or  "page:/api/path:dotted.json.path"
+# Available columns: cell_carrier cell_technology cell_band cell_bandwidth_mhz cell_earfcn
+#   cell_cell_id cell_pci cell_tac cell_rsrp cell_rsrq cell_sinr cell_rssi cell_apn cell_ip
+#   cell_imei cell_imsi cell_iccid cell_firmware cell_uptime cell_5g_band cell_5g_rsrp
+#   cell_5g_rsrq cell_5g_sinr cell_5g_pci
+[router.fields]
+
 [display]
 # Leave empty to auto-detect the 480x320 framebuffer (e.g. /dev/fb1 with fbtft).
 framebuffer = ""
@@ -65,7 +90,7 @@ refresh_seconds = 1.0
 # Leave empty to auto-detect the ADS7846/XPT2046 evdev device.
 device = ""
 device_name_match = "ADS7846"
-# Calibration: run `sudo crwb calibrate-touch` to fill these in.
+# Calibration: run `sudo pingaroo calibrate-touch` to fill these in.
 swap_xy = true
 invert_x = false
 invert_y = true
@@ -73,12 +98,12 @@ x_min = 200
 x_max = 3900
 y_min = 200
 y_max = 3900
-debounce_ms = 300
-tap_max_move_px = 24
+debounce_ms = 350
+tap_max_move_px = 60
 
 [logging]
-directory = "/var/lib/crwb"
-runtime_directory = "/run/crwb"
+directory = "/var/lib/pingaroo"
+runtime_directory = "/run/pingaroo"
 csv_max_bytes = 5000000
 jsonl_max_bytes = 20000000
 # Rotated files kept per log (results.<stamp>.csv, events.<stamp>.jsonl).

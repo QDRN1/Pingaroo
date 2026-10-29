@@ -23,20 +23,20 @@ CFG=/boot/firmware/config.txt
 [ -f "$CFG" ] || CFG=/boot/config.txt
 CMD=/boot/firmware/cmdline.txt
 [ -f "$CMD" ] || CMD=/boot/cmdline.txt
-cp "$CFG" "$CFG.crwb-backup-$(date +%Y%m%d%H%M%S)"
+cp "$CFG" "$CFG.pingaroo-backup-$(date +%Y%m%d%H%M%S)"
 
-# Remove earlier crwb display lines, then append the new block.
-sed -i '/^# crwb display begin/,/^# crwb display end/d' "$CFG"
+# Remove earlier pingaroo display lines, then append the new block.
+sed -i '/^# pingaroo display begin/,/^# pingaroo display end/d' "$CFG"
 if [ "$OVERLAY" = piscreen ]; then
   LINE="dtoverlay=piscreen,speed=${SPEED},rotate=${ROTATE},fps=30${EXTRA}"
 else
   LINE="dtoverlay=${OVERLAY},rotate=${ROTATE},speed=${SPEED},fps=30"
 fi
 cat >> "$CFG" <<EOT
-# crwb display begin
+# pingaroo display begin
 dtparam=spi=on
 ${LINE}
-# crwb display end
+# pingaroo display end
 EOT
 echo "Added to $CFG:"
 echo "   $LINE"
@@ -49,6 +49,6 @@ fi
 echo
 echo "Reboot, then verify:"
 echo "   dmesg | grep -iE 'fb_|fbtft|ili9486|ads7846|panel'"
-echo "   crwb check-display --test"
-echo "   sudo crwb check-touch"
+echo "   pingaroo check-display --test"
+echo "   sudo pingaroo check-touch"
 echo "If nothing appears, see docs/DISPLAY.md to identify the LCD controller."

@@ -15,6 +15,7 @@ from .backend import Backend
 from .netinfo import WifiState
 from .shell import CancelToken
 from .storage import Storage
+from .router import ROUTER_COLUMNS
 
 
 class Phase:
@@ -81,6 +82,11 @@ class WorkerState:
         self.label = ""
         self.label_override = ""
         self.clock_synced: bool | None = None
+        self.live: dict | None = None            # speed test progress {phase, mbps, progress, t}
+        self.last_router: dict | None = None
+        self.switching = ""                      # "" | "home" | "test" while a manual switch runs
+        self.switch_note = ""
+        self.interval_s = 300.0
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -110,6 +116,11 @@ class WorkerState:
                 "interface_note": self.interface_note,
                 "label": self.label_override or self.label,
                 "clock_synced": self.clock_synced,
+                "live": copy.deepcopy(self.live),
+                "last_router": copy.deepcopy(self.last_router),
+                "switching": self.switching,
+                "switch_note": self.switch_note,
+                "interval_s": self.interval_s,
             }
 
 
@@ -122,10 +133,11 @@ class Worker:
         self.cancel = CancelToken()
         self._wake = threading.Event()
         self._shutdown = False
-        self._thread = threading.Thread(target=self._main, name="crwb-worker", daemon=True)
+        self._thread = threading.Thread(target=self._main, name="pingaroo-worker", daemon=True)
         self._start_lock = threading.Lock()
         self.cycle_running = False
         self.state.label = config_mod.read_label(cfg)
+        self.state.interval_s = float(cfg["app"]["interval_seconds"])
 
     # ------------------------------------------------------------- public API
     def start(self) -> None:
@@ -173,6 +185,44 @@ class Worker:
     def set_label_override(self, label: str) -> None:
         with self.state.lock:
             self.state.label_override = label
+
+    def switch_network(self, target: str) -> bool:
+        """Manual switch of the radio: 'home' (management Wi-Fi, stops the loop) or
+        'test' (the router under test).  Runs in a thread; returns False if busy."""
+        wcfg = self.cfg["wifi"]
+        profile = wcfg["home_profile"] if target == "home" else wcfg["connection_name"]
+        if not profile:
+            with self.state.lock:
+                self.state.switch_note = "no home profile set (pingaroo wifi --home-current)"
+            return False
+        with self.state.lock:
+            if self.state.switching:
+                return False
+            self.state.switching = target
+            self.state.switch_note = f"switching to {profile}"
+        if target == "home":
+            self.stop_session()
+
+        def _go():
+            try:
+                deadline = time.monotonic() + 12
+                while self.cycle_running and time.monotonic() < deadline:
+                    time.sleep(0.2)
+                ok, err = self.backend.activate_profile(profile, self.state.interface,
+                                                        float(wcfg["connect_timeout_seconds"]))
+                self.storage.write_event("network_switch", target=target, profile=profile, ok=ok, error=err)
+                with self.state.lock:
+                    self.state.switch_note = "" if ok else f"switch failed: {err}"[:120]
+            finally:
+                with self.state.lock:
+                    self.state.switching = ""
+                try:
+                    self.refresh_wifi()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_go, name="pingaroo-switch", daemon=True).start()
+        return True
 
     def refresh_wifi(self) -> WifiState:
         st = self.backend.wifi_state(self.state.interface, self.cfg["wifi"]["ssid"])
@@ -336,6 +386,16 @@ class Worker:
         self.storage.write_event("wifi_result", cycle_id=cycle_id, ok=True, ssid=wstate.ssid,
                                  ip=wstate.ip, bssid=wstate.bssid, signal_dbm=wstate.signal_dbm)
 
+        # ---- router / cellular data (only if an adapter is configured)
+        if cfg["router"]["type"] != "none":
+            rinfo = self.backend.router_info(cfg)
+            detail["router"] = rinfo
+            with st.lock:
+                st.last_router = rinfo
+            self._fill_router(row, rinfo)
+            self.storage.write_event("router_info", cycle_id=cycle_id, ok=not rinfo.get("error"),
+                                     error=rinfo.get("error", ""))
+
         # ---- route check: the default path for test traffic must be the Wi-Fi
         route_ok, route_err = self.backend.route_check(iface, list(cfg["connectivity"]["ping_targets"]),
                                                        bool(wstate.ipv6))
@@ -380,11 +440,17 @@ class Worker:
         with st.lock:
             st.speed_is_previous = True
 
-        def on_phase(kind: str) -> None:
+        def on_phase(kind: str, info: dict | None = None) -> None:
             self._set_phase({"ping": Phase.SPEEDTEST_LATENCY, "download": Phase.SPEEDTEST_DOWNLOAD,
                              "upload": Phase.SPEEDTEST_UPLOAD}.get(kind, Phase.SPEEDTEST))
+            with st.lock:
+                st.live = {"phase": kind, "t": time.monotonic(), **(info or {})}
 
+        with st.lock:
+            st.live = {"phase": "start", "t": time.monotonic()}
         sres = self.backend.speedtest(cfg, iface, self.cancel, on_phase)
+        with st.lock:
+            st.live = None
         speed = sres.to_dict()
         raw = speed.pop("raw", None)
         detail["speedtest"] = speed
@@ -426,6 +492,12 @@ class Worker:
         with self.state.lock:
             self.state.wifi = wstate
             self.state.wifi_time_mono = time.monotonic()
+
+    @staticmethod
+    def _fill_router(row: dict, r: dict) -> None:
+        for col in ROUTER_COLUMNS:
+            row[col] = r.get(col)
+        row["router_error"] = r.get("error", "")
 
     @staticmethod
     def _fill_network(row: dict, w: WifiState) -> None:
@@ -471,7 +543,7 @@ class NetMonitor(threading.Thread):
     between cycles.  It never probes the internet."""
 
     def __init__(self, worker: Worker, period: float = 3.0) -> None:
-        super().__init__(name="crwb-netmon", daemon=True)
+        super().__init__(name="pingaroo-netmon", daemon=True)
         self.worker = worker
         self.period = period
         self._stop = threading.Event()

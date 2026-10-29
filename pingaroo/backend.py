@@ -27,11 +27,18 @@ class Backend:
         raise NotImplementedError
 
     def speedtest(self, cfg: dict, interface: str, cancel: CancelToken,
-                  on_phase: Callable[[str], None]) -> SpeedtestResult:
+                  on_phase: Callable[[str, dict], None]) -> SpeedtestResult:
         raise NotImplementedError
 
     def speedtest_version(self, cfg: dict) -> str:
         return ""
+
+    def router_info(self, cfg: dict) -> dict:
+        """Cellular/modem data from the router's own interface, {} if not configured."""
+        return {}
+
+    def activate_profile(self, profile: str, interface: str, timeout: float) -> tuple[bool, str]:
+        raise NotImplementedError
 
 
 class RealBackend(Backend):
@@ -73,3 +80,15 @@ class RealBackend(Backend):
 
     def speedtest_version(self, cfg: dict) -> str:
         return speedtest.tool_version(cfg["speedtest"]["command"])
+
+    def router_info(self, cfg: dict) -> dict:
+        from . import router
+        return router.fetch(cfg)
+
+    def activate_profile(self, profile: str, interface: str, timeout: float) -> tuple[bool, str]:
+        from . import shell
+        res = shell.run(["nmcli", "-w", str(int(timeout)), "connection", "up", profile, "ifname", interface],
+                        timeout=timeout + 5)
+        if res.ok:
+            return True, ""
+        return False, wifi.explain_nmcli_error(res.stderr or res.stdout or res.error or "")

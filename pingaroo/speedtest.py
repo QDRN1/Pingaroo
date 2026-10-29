@@ -157,7 +157,7 @@ def build_command(cfg: dict, interface: str) -> list[str]:
 
 
 def run(cfg: dict, interface: str, cancel: CancelToken,
-        on_phase: Callable[[str], None] | None = None) -> SpeedtestResult:
+        on_phase: Callable[[str, dict], None] | None = None) -> SpeedtestResult:
     scfg = cfg["speedtest"]
     timeout = float(scfg["timeout_seconds"])
     res = SpeedtestResult(server_pinned=int(scfg["server_id"]) > 0)
@@ -207,7 +207,15 @@ def run(cfg: dict, interface: str, cancel: CancelToken,
                         if kind and kind not in res.phases_seen:
                             res.phases_seen.append(kind)
                 if on_phase and kind in ("ping", "download", "upload"):
-                    on_phase(kind)
+                    block = data.get(kind) or {}
+                    info = {"mbps": bytes_per_second_to_mbps(block.get("bandwidth")) if kind != "ping" else None,
+                            "progress": _num(block.get("progress")) if kind != "ping" else _num((data.get("ping") or {}).get("progress")),
+                            "latency_ms": _num((data.get("ping") or {}).get("latency")),
+                            "elapsed_ms": _num(block.get("elapsed"))}
+                    try:
+                        on_phase(kind, info)
+                    except Exception:
+                        pass
         except ValueError:
             pass
 

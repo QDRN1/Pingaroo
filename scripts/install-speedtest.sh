@@ -32,5 +32,5 @@ if speedtest --help 2>/dev/null | grep -q 'jsonl'; then
 else
   echo "   WARNING: jsonl format not listed in --help; check 'speedtest --help' output"
 fi
-echo "Done. Nearby servers (pick an id for 'crwb server <id>' if you want a pinned server):"
+echo "Done. Nearby servers (pick an id for 'pingaroo server <id>' if you want a pinned server):"
 speedtest -L 2>/dev/null | head -15 || true

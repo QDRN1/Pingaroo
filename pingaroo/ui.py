@@ -6,7 +6,9 @@ the image plus a list of hit rectangles so the controller can map taps to action
 
 from __future__ import annotations
 
+import math
 import os
+import time
 from dataclasses import dataclass
 
 from PIL import Image, ImageDraw, ImageFont
@@ -14,18 +16,22 @@ from PIL import Image, ImageDraw, ImageFont
 from . import clock
 
 # Theme: high contrast on a dark background.
-BG = (12, 14, 18)
-PANEL = (28, 32, 40)
-TEXT = (240, 240, 240)
-MUTED = (160, 166, 176)
-GREEN = (60, 200, 100)
-AMBER = (245, 180, 40)
-RED = (235, 80, 70)
-BLUE = (80, 150, 240)
-BTN_START = (34, 140, 70)
-BTN_STOP = (190, 50, 45)
-BTN_NEUTRAL = (55, 62, 78)
+BG = (10, 13, 20)
+BG2 = (18, 24, 34)
+PANEL = (26, 33, 46)
+PANEL_EDGE = (44, 54, 72)
+TEXT = (242, 244, 248)
+MUTED = (150, 158, 172)
+GREEN = (72, 210, 110)
+AMBER = (250, 184, 48)
+RED = (240, 84, 72)
+BLUE = (92, 160, 250)
+CYAN = (70, 200, 220)
+BTN_START = (30, 150, 76)
+BTN_STOP = (196, 52, 46)
+BTN_NEUTRAL = (54, 64, 86)
 BTN_TEXT = (255, 255, 255)
+BAR_BG = (40, 48, 64)
 
 
 @dataclass
@@ -82,14 +88,27 @@ def plural(n: int, word: str) -> str:
     return f"{n} {word}" + ("" if n == 1 else "s")
 
 
+def signal_bars(dbm: int | None) -> int:
+    if dbm is None:
+        return 0
+    if dbm >= -55:
+        return 4
+    if dbm >= -65:
+        return 3
+    if dbm >= -75:
+        return 2
+    return 1
+
+
 class Renderer:
     def __init__(self, cfg: dict) -> None:
         d = cfg["display"]
         self.w = int(d["width"])
         self.h = int(d["height"])
         self.fonts = Fonts(d["font"], d["font_bold"])
-        self.title = "Router Worker Bee"
+        self.title = "Pingaroo"
         self.ssid = cfg["wifi"]["ssid"]
+        self.home_ssid = cfg["wifi"].get("home_ssid", "")
 
     # ------------------------------------------------------------- utilities
     def _text(self, draw, xy, text, size, fill=TEXT, bold=False, anchor="la", max_w=None):
@@ -108,12 +127,73 @@ class Renderer:
 
     def _button(self, draw, hits, rect, label, action, color, size=20):
         x0, y0, x1, y1 = rect
-        draw.rounded_rectangle(rect, radius=8, fill=color)
+        shadow = tuple(max(0, c - 18) for c in color)
+        draw.rounded_rectangle((x0, y0 + 3, x1, y1 + 3), radius=10, fill=shadow)
+        draw.rounded_rectangle(rect, radius=10, fill=color)
+        hi = tuple(min(255, c + 22) for c in color)
+        draw.rounded_rectangle((x0 + 2, y0 + 2, x1 - 2, y0 + (y1 - y0) // 2), radius=8, fill=hi)
+        draw.rounded_rectangle((x0 + 2, y0 + (y1 - y0) // 2 - 6, x1 - 2, y1 - 2), radius=8, fill=color)
         self._text(draw, ((x0 + x1) // 2, (y0 + y1) // 2), label, size, BTN_TEXT, bold=True, anchor="mm")
         hits.append(Hit(x0, y0, x1, y1, action))
 
+    @staticmethod
+    def _icon_wifi(draw, x, y, bars, color, dim=(60, 68, 84)):
+        """Four signal bars, 22x16, bottom-left at (x, y+16)."""
+        for i in range(4):
+            h = 5 + i * 4
+            bx = x + i * 6
+            fill = color if i < bars else dim
+            draw.rectangle((bx, y + 16 - h, bx + 4, y + 16), fill=fill)
+
+    @staticmethod
+    def _icon_globe(draw, x, y, color):
+        """Globe 18x18 at (x, y)."""
+        draw.ellipse((x, y, x + 18, y + 18), outline=color, width=2)
+        draw.ellipse((x + 5, y, x + 13, y + 18), outline=color, width=1)
+        draw.line((x + 1, y + 9, x + 17, y + 9), fill=color, width=1)
+        draw.line((x + 3, y + 4, x + 15, y + 4), fill=color, width=1)
+        draw.line((x + 3, y + 14, x + 15, y + 14), fill=color, width=1)
+
+    @staticmethod
+    def _icon_dot(draw, x, y, color, r=5):
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=color)
+
+    def _spinner(self, draw, cx, cy, r, color, t):
+        """Three orbiting dots, phase from wall time so each redraw moves it."""
+        for k in range(3):
+            a = (t * 2.6 + k * 2.094)
+            px = cx + r * math.cos(a)
+            py = cy + r * math.sin(a)
+            rad = 3 if k == 0 else 2
+            draw.ellipse((px - rad, py - rad, px + rad, py + rad), fill=color)
+
+    def _progress_bar(self, draw, rect, fraction, color, t, label=""):
+        x0, y0, x1, y1 = rect
+        draw.rounded_rectangle(rect, radius=4, fill=BAR_BG)
+        if fraction is None:
+            # indeterminate: sweeping highlight
+            w = x1 - x0
+            pos = (t * 160) % (w + 80) - 40
+            sx0, sx1 = max(x0, x0 + pos), min(x1, x0 + pos + 80)
+            if sx1 > sx0:
+                draw.rounded_rectangle((sx0, y0, sx1, y1), radius=4, fill=color)
+        else:
+            f = max(0.0, min(1.0, fraction))
+            fx = x0 + int((x1 - x0) * f)
+            if fx > x0:
+                draw.rounded_rectangle((x0, y0, fx, y1), radius=4, fill=color)
+                # moving sheen inside the filled part
+                sheen = fx - 24 - int((t * 90) % max(1, fx - x0))
+                if sheen > x0:
+                    draw.rounded_rectangle((max(x0, sheen), y0, min(fx, sheen + 24), y1), radius=4,
+                                           fill=tuple(min(255, c + 60) for c in color))
+        if label:
+            self._text(draw, ((x0 + x1) // 2, (y0 + y1) // 2), label, 11, TEXT, bold=True, anchor="mm")
+
     # ------------------------------------------------------------------ main
-    def render_main(self, snap: dict, storage: dict, display_note: str = "") -> tuple[Image.Image, list[Hit]]:
+    def render_main(self, snap: dict, storage: dict, display_note: str = "",
+                    now: float | None = None) -> tuple[Image.Image, list[Hit]]:
+        t = time.time() if now is None else now
         img = Image.new("RGB", (self.w, self.h), BG)
         draw = ImageDraw.Draw(img)
         hits: list[Hit] = []
@@ -123,31 +203,48 @@ class Renderer:
         phase = snap.get("phase", "Idle")
         running = snap.get("running", False)
         worker_alive = snap.get("worker_alive", True)
+        live = snap.get("live") or None
+        testing_live = bool(live) and running
 
-        # Header
-        draw.rectangle((0, 0, self.w, 30), fill=PANEL)
-        self._text(draw, (8, 15), self.title, 17, TEXT, bold=True, anchor="lm")
+        # Header: title | label chip | date/time
+        draw.rectangle((0, 0, self.w, 32), fill=PANEL)
+        draw.line((0, 32, self.w, 32), fill=PANEL_EDGE)
+        self._icon_dot(draw, 14, 16, AMBER, 6)
+        self._icon_dot(draw, 14, 16, BG, 2)
+        self._text(draw, (26, 16), self.title, 18, TEXT, bold=True, anchor="lm")
         label = snap.get("label") or "-"
-        self._text(draw, (self.w - 8, 15), label, 17, AMBER, bold=True, anchor="rm", max_w=250)
+        font = self.fonts.get(13, True)
+        lw = min(170, int(draw.textlength(label, font=font)) + 16)
+        cx = 150
+        draw.rounded_rectangle((cx, 7, cx + lw, 25), radius=9, fill=(70, 52, 14))
+        self._text(draw, (cx + lw // 2, 16), label, 13, AMBER, bold=True, anchor="mm", max_w=lw - 12)
+        now_dt = clock.now()
+        self._text(draw, (self.w - 8, 16), now_dt.strftime("%a %b %d  %H:%M:%S"), 14, TEXT, anchor="rm")
 
         # Network rows
-        y = 36
-        if wifi.get("connected"):
+        y = 40
+        home = bool(self.home_ssid) and wifi.get("ssid") == self.home_ssid and self.home_ssid != self.ssid
+        if snap.get("switching"):
+            wifi_txt, wifi_col = f"Switching to {snap['switching']} Wi-Fi", AMBER
+        elif wifi.get("connected"):
             wifi_txt, wifi_col = "Connected", GREEN
+        elif home and wifi.get("ip"):
+            wifi_txt, wifi_col = f"Home ({wifi.get('ssid')})", BLUE
         elif phase == "Connecting" and running:
             wifi_txt, wifi_col = "Connecting", AMBER
         elif wifi.get("associated"):
-            wifi_txt, wifi_col = f"Wrong SSID ({wifi.get('ssid') or '?'})", AMBER
+            wifi_txt, wifi_col = f"Other SSID ({wifi.get('ssid') or '?'})", AMBER
         else:
             wifi_txt, wifi_col = "Disconnected", RED
-        self._text(draw, (8, y), "Wi-Fi", 15, MUTED)
-        self._text(draw, (78, y), wifi_txt, 15, wifi_col, bold=True, max_w=165)
+        self._icon_wifi(draw, 8, y + 1, signal_bars(wifi.get("signal_dbm")) if wifi.get("associated") else 0, wifi_col)
+        self._text(draw, (36, y), "Wi-Fi", 15, MUTED)
+        self._text(draw, (90, y), wifi_txt, 15, wifi_col, bold=True, max_w=180)
+        if wifi.get("signal_dbm") is not None and wifi.get("associated"):
+            self._text(draw, (276, y + 2), f"{wifi['signal_dbm']} dBm", 12, MUTED)
         ip = wifi.get("ip") or "No IP"
-        self._text(draw, (250, y), "IP", 15, MUTED)
-        self._text(draw, (280, y), ip, 15, TEXT if wifi.get("ip") else RED, bold=True, max_w=190)
+        self._text(draw, (self.w - 8, y), ip, 15, TEXT if wifi.get("ip") else RED, bold=True, anchor="ra", max_w=130)
 
-        y = 58
-        self._text(draw, (8, y), "Internet", 15, MUTED)
+        y = 62
         if internet.get("checking"):
             inet_txt, inet_col = "Checking", AMBER
         elif internet.get("ok") is None:
@@ -155,65 +252,86 @@ class Renderer:
         else:
             age = clock.age_text(snap.get("internet_age_s"))
             ok = internet.get("ok")
-            inet_txt = ("OK" if ok else "Failed") + f" (last check {age})"
+            inet_txt = ("OK" if ok else "Failed") + f"  (last check {age})"
             inet_col = GREEN if ok else RED
-        self._text(draw, (78, y), inet_txt, 15, inet_col, bold=True, max_w=394)
+        self._icon_globe(draw, 9, y + 1, inet_col)
+        self._text(draw, (36, y), "Internet", 15, MUTED)
+        self._text(draw, (102, y), inet_txt, 15, inet_col, bold=True, max_w=370)
 
         # Results block
         speed = snap.get("last_speed") or {}
         previous = snap.get("speed_is_previous", False)
-        draw.rectangle((0, 80, self.w, 164), fill=PANEL)
-        cols = [(80, "Download Mbps", speed.get("download_mbps")),
-                (240, "Upload Mbps", speed.get("upload_mbps")),
-                (400, "Ping ms (speedtest idle)", speed.get("latency_ms"))]
-        value_col = MUTED if previous else TEXT
-        for cx, caption, value in cols:
-            self._text(draw, (cx, 92), caption, 13, MUTED, anchor="mm")
-            self._text(draw, (cx, 128), fmt_num(value, 1), 36, value_col, bold=True, anchor="mm")
-        if speed.get("partial"):
-            self._text(draw, (self.w - 6, 158), "partial result", 11, AMBER, anchor="rb")
-        if previous:
-            self._text(draw, (6, 158), "previous result (new test running)", 11, AMBER, anchor="lb")
+        draw.rounded_rectangle((4, 86, self.w - 4, 170), radius=10, fill=PANEL, outline=PANEL_EDGE)
+        cols = [(84, "Download Mbps", "download", speed.get("download_mbps")),
+                (240, "Upload Mbps", "upload", speed.get("upload_mbps")),
+                (396, "Ping ms (speedtest idle)", "ping", speed.get("latency_ms"))]
+        live_phase = (live or {}).get("phase") if testing_live else None
+        for cx, caption, key, value in cols:
+            is_live = live_phase == key
+            self._text(draw, (cx, 98), caption, 12, AMBER if is_live else MUTED, anchor="mm")
+            if is_live:
+                if key == "ping":
+                    shown = fmt_num(live.get("latency_ms"), 1)
+                else:
+                    shown = fmt_num(live.get("mbps"), 1)
+                self._text(draw, (cx, 130), shown, 34, AMBER, bold=True, anchor="mm")
+            else:
+                value_col = MUTED if previous else TEXT
+                self._text(draw, (cx, 130), fmt_num(value, 1), 34, value_col, bold=True, anchor="mm")
+        if testing_live:
+            frac = (live or {}).get("progress")
+            name = {"ping": "Latency", "download": "Download", "upload": "Upload", "start": "Starting"}.get(live_phase, "Speed test")
+            pct = f"{int(frac * 100)}%" if isinstance(frac, (int, float)) else ""
+            self._progress_bar(draw, (14, 152, self.w - 14, 164), frac if live_phase in ("download", "upload") else None,
+                               BLUE if live_phase == "download" else CYAN if live_phase == "upload" else AMBER, t,
+                               f"{name} {pct}".strip())
+        else:
+            if speed.get("partial"):
+                self._text(draw, (self.w - 10, 164), "partial result", 11, AMBER, anchor="rb")
+            if previous:
+                self._text(draw, (12, 164), "previous result (new test running)", 11, AMBER, anchor="lb")
+            elif speed and snap.get("last_speed_age_s") is not None:
+                last_row = snap.get("last_row") or {}
+                when = (last_row.get("end_time") or "")[11:19]
+                self._text(draw, (12, 164), f"measured {when} ({clock.age_text(snap.get('last_speed_age_s'))})", 11, MUTED, anchor="lb")
 
-        # Phase / countdown / counters row
-        y = 170
+        # Phase / countdown row
+        y = 178
         if not worker_alive:
             phase_txt, phase_col = "WORKER STOPPED", RED
         elif running:
             phase_txt, phase_col = phase, AMBER if phase != "Waiting" else BLUE
         else:
-            phase_txt, phase_col = phase if phase != "Idle" else "Idle", MUTED
+            phase_txt, phase_col = phase, MUTED
         self._text(draw, (8, y), "Phase", 15, MUTED)
-        self._text(draw, (78, y), phase_txt, 15, phase_col, bold=True, max_w=200)
+        self._text(draw, (62, y), phase_txt, 15, phase_col, bold=True, max_w=210)
+        if running and phase not in ("Waiting", "Idle"):
+            self._spinner(draw, 290, y + 9, 6, phase_col, t)
         countdown = snap.get("countdown_s")
         if running and countdown is not None and phase == "Waiting":
             self._text(draw, (self.w - 8, y), "Next test in " + clock.mmss(countdown), 15, BLUE, bold=True, anchor="ra")
+            total = max(1.0, float(snap.get("interval_s") or 300))
+            self._progress_bar(draw, (8, y + 22, self.w - 8, y + 27), 1.0 - min(1.0, countdown / total), BLUE, t)
 
-        y = 192
+        y = 208
         if session:
-            counters = (f"Cycles {session['cycles']}   OK {session['successes']}   "
-                        f"Failed {session['failures']}")
+            parts = [("Cycles", session["cycles"], TEXT), ("OK", session["successes"], GREEN),
+                     ("Failed", session["failures"], RED if session["failures"] else TEXT)]
             if session.get("interrupted"):
-                counters += f"   Stopped {session['interrupted']}"
+                parts.append(("Stopped", session["interrupted"], AMBER))
+            x = 8
+            for name, val, col in parts:
+                self._text(draw, (x, y), name, 13, MUTED)
+                x += int(draw.textlength(name, font=self.fonts.get(13)) + 5)
+                self._text(draw, (x, y - 1), str(val), 15, col, bold=True)
+                x += int(draw.textlength(str(val), font=self.fonts.get(15, True)) + 16)
         else:
-            counters = "No session yet. Tap Start Test."
-        self._text(draw, (8, y), counters, 15, TEXT, max_w=self.w - 16)
+            self._text(draw, (8, y), "No session yet. Tap Start Test.", 14, MUTED)
 
-        # Latest result timestamp / error line
-        y = 214
-        last_row = snap.get("last_row") or {}
-        if speed and snap.get("last_speed_age_s") is not None and not previous:
-            when = (last_row.get("end_time") or "")[11:19]
-            self._text(draw, (8, y), f"Last speed test {when} ({clock.age_text(snap.get('last_speed_age_s'))})", 13, MUTED,
-                       max_w=self.w - 16)
-        elif last_row:
-            self._text(draw, (8, y), f"Last attempt {(last_row.get('end_time') or '')[11:19]} "
-                       f"{last_row.get('status', '')}", 13, MUTED, max_w=self.w - 16)
-        else:
-            self._text(draw, (8, y), "No results this session", 13, MUTED)
-
+        # error / note line
         y = 232
         err = snap.get("last_error") or ""
+        err_col = RED
         storage_err = (storage or {}).get("last_error") or ""
         if storage_err:
             err = f"LOG WRITE FAILED: {storage_err}"
@@ -223,10 +341,12 @@ class Renderer:
             err = f"Worker crashed: {snap['worker_crash']}"
         elif not snap.get("interface"):
             err = "No Wi-Fi interface detected"
+        elif snap.get("switch_note"):
+            err, err_col = snap["switch_note"], AMBER
         elif display_note:
             err = display_note
         if err:
-            self._text(draw, (8, y), err, 13, RED, max_w=self.w - 16)
+            self._text(draw, (8, y), err, 13, err_col, max_w=self.w - 16)
 
         # Buttons
         by0, by1 = 258, 312
@@ -245,6 +365,7 @@ class Renderer:
         speed = snap.get("last_speed") or {}
         conn = snap.get("last_connectivity") or {}
         last_row = snap.get("last_row") or {}
+        router = snap.get("last_router") or {}
         na = "unavailable"
 
         def v(x, suffix=""):
@@ -252,7 +373,8 @@ class Renderer:
 
         rows: list[tuple[str, str, tuple]] = []
         rows.append(("WI-FI LINK", "", AMBER))
-        rows.append(("SSID", v(wifi.get("ssid")), TEXT))
+        rows.append(("SSID", v(wifi.get("ssid")) + ("  [test network]" if wifi.get("ssid") == self.ssid else
+                                                     "  [home network]" if wifi.get("ssid") and wifi.get("ssid") == self.home_ssid else ""), TEXT))
         rows.append(("Interface", v(snap.get("interface")) + (f" ({snap.get('interface_note')})" if snap.get("interface_note") else ""), TEXT))
         rows.append(("BSSID", v(wifi.get("bssid")), TEXT))
         rows.append(("Signal", v(wifi.get("signal_dbm"), " dBm") + "  (Wi-Fi link, not cellular)", TEXT))
@@ -266,6 +388,25 @@ class Renderer:
         rows.append(("Router DNS (DHCP)", v(", ".join(wifi.get("dhcp_dns") or [])), TEXT))
         rows.append(("IPv6", v(", ".join(wifi.get("ipv6") or [])), TEXT))
         rows.append(("Public IP (last test)", v(speed.get("public_ip")), TEXT))
+        rows.append(("Home Wi-Fi profile", v(self.home_ssid), TEXT))
+
+        rows.append(("CELLULAR (FROM ROUTER)", "", AMBER))
+        if router and not router.get("error") and any(k.startswith("cell_") and router.get(k) is not None for k in router):
+            pairs = [("Carrier / tech", " ".join(str(router.get(k)) for k in ("cell_carrier", "cell_technology") if router.get(k))),
+                     ("Band / EARFCN", " / ".join(str(router.get(k)) for k in ("cell_band", "cell_earfcn") if router.get(k) is not None)),
+                     ("Cell ID / PCI / TAC", " / ".join(str(router.get(k)) for k in ("cell_cell_id", "cell_pci", "cell_tac") if router.get(k) is not None)),
+                     ("RSRP / RSRQ / SINR", " / ".join(f"{router.get(k)}" for k in ("cell_rsrp", "cell_rsrq", "cell_sinr") if router.get(k) is not None)),
+                     ("5G band / RSRP / SINR", " / ".join(f"{router.get(k)}" for k in ("cell_5g_band", "cell_5g_rsrp", "cell_5g_sinr") if router.get(k) is not None)),
+                     ("APN", str(router.get("cell_apn") or "")), ("WAN IP", str(router.get("cell_ip") or "")),
+                     ("IMEI / ICCID", " / ".join(str(router.get(k)) for k in ("cell_imei", "cell_iccid") if router.get(k))),
+                     ("Firmware", str(router.get("cell_firmware") or ""))]
+            for k, val in pairs:
+                if val:
+                    rows.append((k, val, TEXT))
+        elif router.get("error"):
+            rows.append(("Router query", f"failed: {router['error']}", RED))
+        else:
+            rows.append(("Status", "no router adapter configured (see docs/ROUTER.md)", MUTED))
 
         rows.append(("LAST CONNECTIVITY CHECK", "", AMBER))
         if conn:
@@ -274,7 +415,6 @@ class Renderer:
                 rows.append((f"Gateway ping {gw.get('target')}", self._ping_text(gw), GREEN if gw.get("received") else RED))
             for p in conn.get("pings", []):
                 rows.append((f"Ping {p.get('target')}", self._ping_text(p), GREEN if p.get("received") else RED))
-            dns_ok = conn.get("dns_ok")
             good = [d for d in conn.get("dns", []) if d.get("addresses")]
             if good:
                 rows.append(("DNS", f"OK via {good[0].get('server')} ({fmt_num(good[0].get('ms'), 0)} ms)", GREEN))
@@ -357,23 +497,29 @@ class Renderer:
         img = Image.new("RGB", (self.w, self.h), BG)
         draw = ImageDraw.Draw(img)
         hits: list[Hit] = []
-        draw.rectangle((0, 0, self.w, 30), fill=PANEL)
-        self._text(draw, (8, 15), "Details", 17, TEXT, bold=True, anchor="lm")
-        self._text(draw, (self.w - 8, 15), f"Page {page + 1}/{pages}   {clock.hhmmss()}", 14, MUTED, anchor="rm")
-        y = 36
+        draw.rectangle((0, 0, self.w, 32), fill=PANEL)
+        draw.line((0, 32, self.w, 32), fill=PANEL_EDGE)
+        self._text(draw, (8, 16), "Details", 18, TEXT, bold=True, anchor="lm")
+        self._text(draw, (self.w - 8, 16), f"Page {page + 1}/{pages}   {clock.now().strftime('%b %d %H:%M:%S')}", 13, MUTED, anchor="rm")
+        y = 38
         for key, value, color in rows[page * self.ROWS_PER_PAGE:(page + 1) * self.ROWS_PER_PAGE]:
             if value == "" and color == AMBER:
                 self._text(draw, (8, y + 2), key, 13, AMBER, bold=True)
+                draw.line((8, y + 18, self.w - 8, y + 18), fill=PANEL_EDGE)
             else:
                 if key:
                     self._text(draw, (8, y + 2), key, 13, MUTED, max_w=150)
                 self._text(draw, (164, y + 2), value, 13, color, max_w=self.w - 170)
             y += self.ROW_H
         by0, by1 = 262, 312
-        self._button(draw, hits, (8, by0, 120, by1), "Back", "back", BTN_NEUTRAL, 18)
-        self._button(draw, hits, (132, by0, 220, by1), "Up", "page_up", BTN_NEUTRAL, 18)
-        self._button(draw, hits, (232, by0, 320, by1), "Down", "page_down", BTN_NEUTRAL, 18)
-        self._button(draw, hits, (332, by0, 472, by1), "Next Label", "next_label", BTN_NEUTRAL, 16)
+        wifi = snap.get("wifi") or {}
+        on_home = bool(self.home_ssid) and wifi.get("ssid") == self.home_ssid
+        self._button(draw, hits, (8, by0, 92, by1), "Back", "back", BTN_NEUTRAL, 16)
+        self._button(draw, hits, (100, by0, 172, by1), "Up", "page_up", BTN_NEUTRAL, 16)
+        self._button(draw, hits, (180, by0, 252, by1), "Down", "page_down", BTN_NEUTRAL, 16)
+        self._button(draw, hits, (260, by0, 356, by1), "Next Label", "next_label", BTN_NEUTRAL, 14)
+        self._button(draw, hits, (364, by0, 472, by1), "Test Wi-Fi" if on_home else "Home Wi-Fi", "switch_wifi",
+                     (40, 90, 150), 14)
         return img, hits, pages
 
     def render_message(self, title: str, lines: list[str], color=TEXT) -> Image.Image:

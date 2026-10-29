@@ -13,7 +13,7 @@ import re
 import tomllib
 from typing import Any
 
-DEFAULT_CONFIG_PATH = "/etc/crwb/config.toml"
+DEFAULT_CONFIG_PATH = "/etc/pingaroo/config.toml"
 
 DEFAULTS: dict[str, Any] = {
     "app": {
@@ -25,6 +25,8 @@ DEFAULTS: dict[str, Any] = {
     "wifi": {
         "ssid": "Kangaroo Labs",
         "connection_name": "Kangaroo Labs",
+        "home_profile": "",
+        "home_ssid": "",
         "interface": "",
         "connect_timeout_seconds": 45,
         "poll_seconds": 1.0,
@@ -57,6 +59,18 @@ DEFAULTS: dict[str, Any] = {
         "bind_interface": True,
         "extra_args": [],
     },
+    "router": {
+        "type": "none",
+        "base_url": "http://192.168.1.1",
+        "username": "attadmin",
+        "password_file": "/etc/pingaroo/router.secret",
+        "login_path": "",
+        "login_method": "form",
+        "login_fields": {"username": "username", "password": "password"},
+        "status_paths": [],
+        "timeout_seconds": 8,
+        "fields": {},
+    },
     "display": {
         "framebuffer": "",
         "width": 480,
@@ -77,12 +91,12 @@ DEFAULTS: dict[str, Any] = {
         "x_max": 3900,
         "y_min": 200,
         "y_max": 3900,
-        "debounce_ms": 300,
-        "tap_max_move_px": 24,
+        "debounce_ms": 350,
+        "tap_max_move_px": 60,
     },
     "logging": {
-        "directory": "/var/lib/crwb",
-        "runtime_directory": "/run/crwb",
+        "directory": "/var/lib/pingaroo",
+        "runtime_directory": "/run/pingaroo",
         "csv_max_bytes": 5_000_000,
         "jsonl_max_bytes": 20_000_000,
         "retention_files": 10,
@@ -155,6 +169,11 @@ def validate(cfg: dict) -> None:
              "speedtest.server_id must be an integer (0 = automatic)")
     _require(sp["timeout_seconds"] >= 30, "speedtest.timeout_seconds must be >= 30")
 
+    rt = cfg["router"]
+    _require(rt["type"] in ("none", "http_json"), "router.type must be none or http_json")
+    _require(isinstance(rt["status_paths"], list), "router.status_paths must be a list")
+    _require(isinstance(rt["fields"], dict), "router.fields must be a table of column = json.path")
+
     disp = cfg["display"]
     _require(disp["width"] > 0 and disp["height"] > 0, "display size must be positive")
     _require(disp["sleep_seconds"] >= 0, "display.sleep_seconds must be >= 0 (0 disables sleep)")
@@ -167,7 +186,7 @@ def validate(cfg: dict) -> None:
 
 def load(path: str | None = None) -> dict:
     """Load config from path (or default), merged over DEFAULTS and validated."""
-    path = path or os.environ.get("CRWB_CONFIG", DEFAULT_CONFIG_PATH)
+    path = path or os.environ.get("PINGAROO_CONFIG", DEFAULT_CONFIG_PATH)
     data: dict = {}
     if os.path.exists(path):
         with open(path, "rb") as fh:

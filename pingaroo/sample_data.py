@@ -1,4 +1,4 @@
-"""Synthetic snapshots for `crwb preview` and layout tests."""
+"""Synthetic snapshots for `pingaroo preview` and layout tests."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ def _base() -> dict:
         "last_speed_age_s": None, "speed_is_previous": False, "last_connectivity": None, "last_error": "",
         "countdown_s": None, "worker_alive": True, "worker_crash": "", "speedtest_version": "1.2.0.84",
         "interface": "wlan0", "interface_note": "auto-detected", "label": "Config A", "clock_synced": True,
+        "live": None, "last_router": None, "switching": "", "switch_note": "", "interval_s": 300,
     }
 
 
@@ -53,7 +54,8 @@ def sample_snapshot() -> dict[str, dict]:
     waiting["internet"].update(ok=True, summary="OK", time_iso="2026-10-29T15:12:10-05:00")
 
     testing = copy.deepcopy(waiting)
-    testing.update(phase="Speed Test: Download", countdown_s=None, speed_is_previous=True)
+    testing.update(phase="Speed Test: Download", countdown_s=None, speed_is_previous=True,
+                   live={"phase": "download", "mbps": 58.3, "progress": 0.62, "latency_ms": 41.3, "t": 0.0})
 
     checking = copy.deepcopy(waiting)
     checking.update(phase="Checking Internet", countdown_s=None)
@@ -67,6 +69,11 @@ def sample_snapshot() -> dict[str, dict]:
     failed["internet"].update(ok=False, summary="HTTPS failed: HTTP 302 (redirect, captive portal?)")
     failed["internet_age_s"] = 25
     failed["session"] = dict(session, cycles=13, failures=3, consecutive_failures=1)
+
+    waiting["last_router"] = {"cell_carrier": "AT&T", "cell_technology": "5G NSA", "cell_band": "B66", "cell_earfcn": 66986,
+                              "cell_cell_id": 12345678, "cell_pci": 301, "cell_tac": 24601, "cell_rsrp": -94, "cell_rsrq": -11,
+                              "cell_sinr": 12, "cell_5g_band": "n77", "cell_5g_rsrp": -88, "cell_5g_sinr": 18, "cell_apn": "broadband",
+                              "cell_ip": "10.44.1.7", "cell_imei": "353282162196635", "cell_firmware": "NCM1120_1.2.3"}
 
     disconnected = copy.deepcopy(idle)
     disconnected.update(running=True, phase="Connecting", session=dict(session, cycles=1, successes=0, failures=0))
@@ -83,6 +90,6 @@ def sample_storage(name: str) -> dict:
 
 
 def sample_extra() -> dict:
-    return {"log_dir": "/var/lib/crwb", "config_path": "/etc/crwb/config.toml", "version": "1.0.0",
+    return {"log_dir": "/var/lib/pingaroo", "config_path": "/etc/pingaroo/config.toml", "version": "1.0.0",
             "display": "/dev/fb1 480x320 16bpp (fb_ili9486)", "touch": "/dev/input/event0 (matched name 'ADS7846 Touchscreen')",
             "sleep": "120 s, method blank"}

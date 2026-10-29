@@ -1,23 +1,23 @@
 [Unit]
-Description=Cellular Router Worker Bee (router test loop + touchscreen UI)
-Documentation=file:///opt/crwb/README.md
+Description=Pingaroo (router test loop + touchscreen UI)
+Documentation=file:///opt/pingaroo/README.md
 After=NetworkManager.service systemd-udevd.service
 Wants=NetworkManager.service
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/crwb
-ExecStart=/usr/bin/python3 -m crwb run
+WorkingDirectory=/opt/pingaroo
+ExecStart=/usr/bin/python3 -m pingaroo run
 Restart=always
 RestartSec=5
 # Stop: SIGTERM to the main process; children (speedtest, ping) are in their own
 # process groups and are killed by the app before it exits.
 KillMode=mixed
 TimeoutStopSec=20
-RuntimeDirectory=crwb
-StateDirectory=crwb
+RuntimeDirectory=pingaroo
+StateDirectory=pingaroo
 Environment=PYTHONUNBUFFERED=1
-Environment=CRWB_CONFIG=/etc/crwb/config.toml
+Environment=PINGAROO_CONFIG=/etc/pingaroo/config.toml
 # Needs root: raw framebuffer + evdev, SO_BINDTODEVICE for interface-bound probes,
 # nmcli activation without a login session, and tty graphics mode.
 User=root

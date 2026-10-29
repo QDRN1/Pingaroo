@@ -188,7 +188,7 @@ class Framebuffer:
 
 
 class HeadlessFramebuffer:
-    """Writes each frame to a PNG; used by `crwb preview` and the tests."""
+    """Writes each frame to a PNG; used by `pingaroo preview` and the tests."""
 
     def __init__(self, out_path: str, width: int, height: int) -> None:
         self.out_path = out_path
