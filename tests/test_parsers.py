@@ -368,7 +368,10 @@ class RouterAdapter(unittest.TestCase):
                 self.assertEqual(out["cell_apn"], "5gcbroadband")
                 with open(pw, "w") as fh:
                     fh.write("wrong\n")
-                self.assertIn("rejected", router.fetch(cfg).get("error", ""))
+                out = router.fetch(cfg)
+                self.assertIn("rejected", out.get("login_error", ""))
+                self.assertNotIn("error", out, "data served without a session must still be recorded")
+                self.assertEqual(out["cell_5g_band"], "N77")
         finally:
             srv.shutdown()
 
@@ -423,6 +426,6 @@ class RouterAdapter(unittest.TestCase):
                 with open(pw, "w") as fh:
                     fh.write("wrong\n")
                 out = router.fetch(cfg)
-                self.assertIn("login HTTP 401", out.get("error", ""))
+                self.assertIn("login HTTP 401", out.get("login_error", ""))
         finally:
             srv.shutdown()

@@ -135,9 +135,11 @@ class HttpJsonRouter:
 
     def fetch(self) -> dict:
         out: dict = {}
-        err = self.login()
-        if err:
-            return {"error": err}
+        login_err = self.login()
+        if login_err:
+            # Not fatal: some firmwares (AT&T NCM1120) serve the status reads without a
+            # session.  Record it and continue; only an empty fetch is an error.
+            out["login_error"] = login_err
         merged: dict = {}
         raw_pages: dict = {}
         for path in self.cfg["status_paths"]:
@@ -157,7 +159,10 @@ class HttpJsonRouter:
             else:
                 merged[path] = data
         if not raw_pages:
-            out["error"] = "; ".join(out.get("errors", [])) or "no status pages configured"
+            parts = out.get("errors", [])
+            if out.get("login_error"):
+                parts = [out["login_error"]] + parts
+            out["error"] = "; ".join(parts) or "no status pages configured"
             return out
         for column, path in self.cfg["fields"].items():
             if path.startswith("page:"):

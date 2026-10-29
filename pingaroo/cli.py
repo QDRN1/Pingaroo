@@ -136,7 +136,11 @@ def cmd_control(args) -> int:
     if not sf.read():
         print("service not running", file=sys.stderr)
         return 1
-    sf.push_control(args.command)
+    try:
+        sf.push_control(args.command)
+    except PermissionError:
+        print(f"cannot write {sf.control_path}: run with sudo", file=sys.stderr)
+        return 1
     print(f"sent '{args.command}' to the running service")
     return 0
 
@@ -271,7 +275,11 @@ def cmd_wifi(args) -> int:
         target = args.switch
         sf = StateFile(cfg["logging"]["runtime_directory"])
         if sf.read() and sf.read().get("worker_alive"):
-            sf.push_control(f"switch:{target}")
+            try:
+                sf.push_control(f"switch:{target}")
+            except PermissionError:
+                print(f"cannot write {sf.control_path}: run with sudo", file=sys.stderr)
+                return 1
             print(f"asked the running service to switch to the {target} Wi-Fi (watch: pingaroo status)")
             return 0
         _need_root("switching Wi-Fi")
