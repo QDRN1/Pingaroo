@@ -9,7 +9,7 @@ import android.util.AttributeSet
 import android.view.View
 
 /** Big verdict banner: EXCELLENT / GOOD / FAIR / POOR with a 5-bar meter. */
-class VerdictView(ctx: Context, attrs: AttributeSet?) : View(ctx, attrs) {
+class VerdictView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = null) : View(ctx, attrs) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val d = resources.displayMetrics.density
     var verdict = "NO SIGNAL DATA"

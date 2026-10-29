@@ -8,7 +8,7 @@ import android.util.AttributeSet
 import android.view.View
 
 /** Small pixel kangaroo + pixel title for the main screen header. */
-class HeaderLogoView(ctx: Context, attrs: AttributeSet?) : View(ctx, attrs) {
+class HeaderLogoView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = null) : View(ctx, attrs) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     override fun onDraw(c: Canvas) {
         val h = height.toFloat()

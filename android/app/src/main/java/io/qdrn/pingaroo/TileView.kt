@@ -5,10 +5,11 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.util.AttributeSet
 import android.view.View
 
 /** One metric tile: caption, big value, unit, accent colour, optional bar. */
-class TileView(ctx: Context) : View(ctx) {
+class TileView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = null) : View(ctx, attrs) {
     var caption = ""
     var value = "-"
     var unit = ""

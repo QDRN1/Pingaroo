@@ -6,10 +6,11 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.util.AttributeSet
 import android.view.View
 
 /** Rolling history of RSRP and SINR (last 90 samples). */
-class SparklineView(ctx: Context) : View(ctx) {
+class SparklineView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = null) : View(ctx, attrs) {
     private val rsrp = ArrayDeque<Int?>()
     private val sinr = ArrayDeque<Int?>()
     private val cap = 90
