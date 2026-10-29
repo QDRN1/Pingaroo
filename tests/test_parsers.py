@@ -257,3 +257,46 @@ class TouchDecoding(unittest.TestCase):
         dec = TouchDecoder(Calibration(480, 320, 0, 4095, 0, 4095, False, False, False))
         out = dec.feed(dec.EV_KEY, dec.BTN_TOUCH, 1, 0) + dec.feed(dec.EV_KEY, dec.BTN_TOUCH, 0, 0)
         self.assertEqual([e.kind for e in out], ["up"])
+
+
+class CornerRefinement(unittest.TestCase):
+    def _check(self, inverted):
+        from crwb.touch import refine_axis
+        truth = Calibration(480, 320, 450, 3700, 280, 3520, False, False, inverted)
+        wrong = Calibration(480, 320, 296, 3911, 22, 3837, False, False, inverted)
+        # where taps at the true physical edges (raw values of truth's edges) land through `wrong`
+        # x axis
+        lo_raw, hi_raw = truth.x_min, truth.x_max
+        m_lo = wrong.map(lo_raw, 2000)[0]
+        m_hi = wrong.map(hi_raw, 2000)[0]
+        x_min, x_max = refine_axis(wrong.x_min, wrong.x_max, False, 480, m_lo, m_hi, 0, 479)
+        self.assertAlmostEqual(x_min, truth.x_min, delta=3)
+        self.assertAlmostEqual(x_max, truth.x_max, delta=3)
+        # y axis (possibly inverted): the low screen edge is the high raw value when inverted
+        top_raw, bottom_raw = (truth.y_max, truth.y_min) if inverted else (truth.y_min, truth.y_max)
+        m_top = wrong.map(2000, top_raw)[1]
+        m_bottom = wrong.map(2000, bottom_raw)[1]
+        y_min, y_max = refine_axis(wrong.y_min, wrong.y_max, inverted, 320, m_top, m_bottom, 0, 319)
+        self.assertAlmostEqual(y_min, truth.y_min, delta=3)
+        self.assertAlmostEqual(y_max, truth.y_max, delta=3)
+
+    def test_refine_plain(self):
+        self._check(False)
+
+    def test_refine_inverted(self):
+        self._check(True)
+
+    def test_refine_on_real_numbers(self):
+        from crwb.touch import refine_axis
+        # Collin's corner taps through the first calibration: x 24/447, y 30/294
+        x_min, x_max = refine_axis(296, 3911, False, 480, (24 + 14) / 2, (447 + 447) / 2)
+        y_min, y_max = refine_axis(22, 3837, True, 320, (38 + 28) / 2, (294 + 294) / 2)
+        cal = Calibration(480, 320, x_min, x_max, y_min, y_max, False, False, True)
+        old = Calibration(480, 320, 296, 3911, 22, 3837, False, False, True)
+        # a tap that used to land at (19, 33) now lands near (3, 3)
+        raw_x = 296 + 19 / 479 * (3911 - 296)
+        raw_y = 22 + (1 - 33 / 319) * (3837 - 22)
+        x, y = cal.map(int(raw_x), int(raw_y))
+        self.assertLess(abs(x - 3), 4)
+        self.assertLess(abs(y - 3), 4)
+        self.assertEqual(old.map(int(raw_x), int(raw_y))[0], 19)

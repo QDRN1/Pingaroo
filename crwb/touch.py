@@ -56,6 +56,30 @@ class Calibration:
         return x, y
 
 
+def refine_axis(lo_raw: int, hi_raw: int, inverted: bool, size: int, measured_lo: float,
+                measured_hi: float, target_lo: float = 3.0, target_hi: float | None = None) -> tuple[int, int]:
+    """Correct one axis of the calibration from two edge measurements.
+
+    `measured_lo`/`measured_hi` are where taps at the low and high physical edges
+    currently land (screen pixels, through the existing calibration).  Returns the
+    new (raw_min, raw_max) so that those edges map to target_lo / target_hi.
+    """
+    if target_hi is None:
+        target_hi = size - 4.0
+    n = size - 1
+    span = max(1, hi_raw - lo_raw)
+    if measured_hi - measured_lo < 10:
+        raise ValueError("edge measurements too close together")
+    s = (target_hi - target_lo) / (measured_hi - measured_lo)
+    if inverted:
+        c = 1.0 - s + (s * measured_lo - target_lo) / n
+    else:
+        c = (target_lo - s * measured_lo) / n
+    new_span = span / s
+    new_lo = lo_raw - c * new_span
+    return int(round(new_lo)), int(round(new_lo + new_span))
+
+
 def find_touch_device(configured: str, name_match: str) -> tuple[str, str]:
     """Return (path, note).  Prefers the configured path, then a device whose name
     matches, then any device with BTN_TOUCH + ABS_X."""

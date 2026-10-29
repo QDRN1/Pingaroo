@@ -389,12 +389,40 @@ def cmd_check_touch(args) -> int:
     return 0
 
 
-def cmd_calibrate_touch(args) -> int:
-    """Four-point calibration drawn on the framebuffer; writes [touch] values."""
+def _collect_taps(fb, reader_q, W, H, points, prompt_fn):
+    """Show a target for each point and wait for one tap.  Returns mapped (x, y) per point."""
     import queue
     from PIL import Image, ImageDraw
+    samples = []
+    for idx, (px, py) in enumerate(points):
+        img = Image.new("RGB", (W, H), (0, 0, 0))
+        d = ImageDraw.Draw(img)
+        prompt_fn(d, idx, px, py)
+        fb.blit(img)
+        while True:
+            try:
+                reader_q.get_nowait()
+            except queue.Empty:
+                break
+        last = None
+        while True:
+            ev = reader_q.get()
+            if ev.kind in ("down", "move"):
+                last = (ev.x, ev.y)
+            elif ev.kind == "up" and last:
+                samples.append(last)
+                break
+        time.sleep(0.4)
+    return samples
+
+
+def cmd_calibrate_touch(args) -> int:
+    """Touch calibration on the framebuffer.  Default: 4 crosses with raw values.
+    --corners: refine the existing calibration from taps at the four physical corners."""
+    import queue
+    from PIL import Image
     from .display import Framebuffer, pick_framebuffer
-    from .touch import Calibration, TouchReader, find_touch_device
+    from .touch import Calibration, TouchReader, find_touch_device, refine_axis
     _need_root("calibration")
     cfg = _cfg(args)
     info, note = pick_framebuffer(cfg["display"]["framebuffer"], cfg["display"]["width"], cfg["display"]["height"])
@@ -407,72 +435,86 @@ def cmd_calibrate_touch(args) -> int:
         return 1
     fb = Framebuffer(info)
     W, H = info.width, info.height
-    # Identity calibration so we receive raw values (0..4095 scaled to screen is
-    # not what we want: use a wide identity range and recover raw from the mapping).
-    raw_cal = Calibration(4096, 4096, 0, 4095, 0, 4095, False, False, False)
+    cal_path = cfg["_path"]
     q: "queue.Queue" = queue.Queue()
-    reader = TouchReader(path, raw_cal, q)
-    reader.start()
-    m = 40
-    points = [(m, m), (W - m, m), (m, H - m), (W - m, H - m)]
-    samples: list[tuple[int, int]] = []
+
+    def write(values: dict) -> None:
+        for key, val in values.items():
+            config_mod.set_value(cal_path, "touch", key, val)
+        print("calibration written to " + cal_path + ": " + " ".join(f"{k}={v}" for k, v in values.items()))
+
     try:
-        for idx, (px, py) in enumerate(points):
-            img = Image.new("RGB", (W, H), (0, 0, 0))
-            d = ImageDraw.Draw(img)
-            d.line((px - 15, py, px + 15, py), fill=(255, 255, 255), width=2)
-            d.line((px, py - 15, px, py + 15), fill=(255, 255, 255), width=2)
-            d.ellipse((px - 8, py - 8, px + 8, py + 8), outline=(255, 200, 0), width=2)
-            d.text((W // 2 - 90, H // 2 - 8), f"Tap the cross ({idx + 1}/4)", fill=(255, 255, 255))
-            fb.blit(img)
-            while True:
-                try:
-                    q.get_nowait()
-                except queue.Empty:
-                    break
-            down = None
-            while True:
-                ev = q.get()
-                if ev.kind in ("down", "move"):
-                    down = (ev.x, ev.y)
-                elif ev.kind == "up" and down:
-                    samples.append(down)
-                    break
-            time.sleep(0.4)
+        if args.corners:
+            cal = Calibration.from_config(cfg)
+            reader = TouchReader(path, cal, q)
+            reader.start()
+            corners = [(0, 0), (W - 1, 0), (0, H - 1), (W - 1, H - 1)]
+            names = ["TOP-LEFT", "TOP-RIGHT", "BOTTOM-LEFT", "BOTTOM-RIGHT"]
+
+            def prompt(d, idx, px, py):
+                x0, y0 = (0 if px == 0 else W - 40), (0 if py == 0 else H - 40)
+                d.rectangle((x0, y0, x0 + 39, y0 + 39), outline=(255, 200, 0), width=3)
+                d.text((W // 2 - 110, H // 2 - 20), f"Tap the very {names[idx]} corner", fill=(255, 255, 255))
+                d.text((W // 2 - 110, H // 2), f"({idx + 1}/4) use a fingernail or stylus", fill=(180, 180, 180))
+
+            try:
+                tl, tr, bl, br = _collect_taps(fb, q, W, H, corners, prompt)
+            finally:
+                reader.stop()
+            left = (tl[0] + bl[0]) / 2
+            right = (tr[0] + br[0]) / 2
+            top = (tl[1] + tr[1]) / 2
+            bottom = (bl[1] + br[1]) / 2
+            print(f"corner taps landed at: left {left:.0f}, right {right:.0f}, top {top:.0f}, bottom {bottom:.0f}")
+            x_min, x_max = refine_axis(cal.x_min, cal.x_max, cal.invert_x, W, left, right)
+            y_min, y_max = refine_axis(cal.y_min, cal.y_max, cal.invert_y, H, top, bottom)
+            write({"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max})
+        else:
+            raw_cal = Calibration(4096, 4096, 0, 4095, 0, 4095, False, False, False)
+            reader = TouchReader(path, raw_cal, q)
+            reader.start()
+            m = 40
+            points = [(m, m), (W - m, m), (m, H - m), (W - m, H - m)]
+
+            def prompt(d, idx, px, py):
+                d.line((px - 15, py, px + 15, py), fill=(255, 255, 255), width=2)
+                d.line((px, py - 15, px, py + 15), fill=(255, 255, 255), width=2)
+                d.ellipse((px - 8, py - 8, px + 8, py + 8), outline=(255, 200, 0), width=2)
+                d.text((W // 2 - 90, H // 2 - 8), f"Tap the cross ({idx + 1}/4)", fill=(255, 255, 255))
+
+            try:
+                samples = _collect_taps(fb, q, W, H, points, prompt)
+            finally:
+                reader.stop()
+            (tl, tr, bl, br) = samples
+            dx_screen = abs(tr[0] - tl[0]) + abs(br[0] - bl[0])
+            dy_screen = abs(tr[1] - tl[1]) + abs(br[1] - bl[1])
+            swap = dx_screen < dy_screen
+
+            def pick(p):
+                return (p[1], p[0]) if swap else p
+
+            tl, tr, bl, br = (pick(p) for p in (tl, tr, bl, br))
+            rx_left = (tl[0] + bl[0]) / 2
+            rx_right = (tr[0] + br[0]) / 2
+            ry_top = (tl[1] + tr[1]) / 2
+            ry_bottom = (bl[1] + br[1]) / 2
+            invert_x = rx_left > rx_right
+            invert_y = ry_top > ry_bottom
+            lo_x, hi_x = sorted((rx_left, rx_right))
+            lo_y, hi_y = sorted((ry_top, ry_bottom))
+            sx = (hi_x - lo_x) / max(1, (W - 2 * m))
+            sy = (hi_y - lo_y) / max(1, (H - 2 * m))
+            write({"swap_xy": swap, "invert_x": invert_x, "invert_y": invert_y,
+                   "x_min": int(lo_x - sx * m), "x_max": int(hi_x + sx * m),
+                   "y_min": int(lo_y - sy * m), "y_max": int(hi_y + sy * m)})
+            print("Next: sudo crwb calibrate-touch --corners   (refines the edges from corner taps)")
     except KeyboardInterrupt:
         print("cancelled")
         return 1
     finally:
-        reader.stop()
-    # samples are raw values scaled to 0..4095 (identity).  Decide axis mapping.
-    (tl, tr, bl, br) = samples
-    dx_screen = abs(tr[0] - tl[0]) + abs(br[0] - bl[0])
-    dy_screen = abs(tr[1] - tl[1]) + abs(br[1] - bl[1])
-    swap = dx_screen < dy_screen   # if moving right on screen changes raw Y more than raw X
-    def pick(p, swap):
-        return (p[1], p[0]) if swap else p
-    tl, tr, bl, br = (pick(p, swap) for p in (tl, tr, bl, br))
-    rx_left = (tl[0] + bl[0]) / 2
-    rx_right = (tr[0] + br[0]) / 2
-    ry_top = (tl[1] + tr[1]) / 2
-    ry_bottom = (bl[1] + br[1]) / 2
-    invert_x = rx_left > rx_right
-    invert_y = ry_top > ry_bottom
-    lo_x, hi_x = sorted((rx_left, rx_right))
-    lo_y, hi_y = sorted((ry_top, ry_bottom))
-    # extrapolate from the margin points to the screen edges
-    sx = (hi_x - lo_x) / max(1, (W - 2 * m))
-    sy = (hi_y - lo_y) / max(1, (H - 2 * m))
-    x_min, x_max = int(lo_x - sx * m), int(hi_x + sx * m)
-    y_min, y_max = int(lo_y - sy * m), int(hi_y + sy * m)
-    cal_path = cfg["_path"]
-    for key, val in (("swap_xy", swap), ("invert_x", invert_x), ("invert_y", invert_y),
-                     ("x_min", x_min), ("x_max", x_max), ("y_min", y_min), ("y_max", y_max)):
-        config_mod.set_value(cal_path, "touch", key, val)
-    print(f"calibration written to {cal_path}: swap_xy={swap} invert_x={invert_x} invert_y={invert_y} "
-          f"x {x_min}..{x_max} y {y_min}..{y_max}")
-    fb.blit(Image.new("RGB", (W, H), (0, 60, 0)))
-    fb.close()
+        fb.blit(Image.new("RGB", (W, H), (0, 60, 0)))
+        fb.close()
     print("Restart the service to apply: sudo systemctl restart crwb")
     return 0
 
@@ -576,7 +618,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--moves", action="store_true", help="also print move events")
     s.set_defaults(func=cmd_check_touch)
 
-    s = sub.add_parser("calibrate-touch", help="4-point touch calibration (stop the service first)")
+    s = sub.add_parser("calibrate-touch", help="touch calibration (stop the service first)")
+    s.add_argument("--corners", action="store_true", help="refine the current calibration from taps at the 4 corners")
     s.set_defaults(func=cmd_calibrate_touch)
 
     s = sub.add_parser("preview", help="render sample screens to PNG files")
