@@ -1,6 +1,6 @@
 {
-  "versionCode": 4,
-  "versionName": "1.3",
+  "versionCode": 5,
+  "versionName": "1.4",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Samsung 5G NSA readings, LTE fallback, layout fixes, in-app updates"
+  "notes": "Version/About, freshness + context strip, Pause, trend arrows, session stats, Spots screen, Settings, audio tone, tap-to-fix errors, kangaroo icon"
 }
