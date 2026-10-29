@@ -60,6 +60,8 @@ cp "$SRC/README.md" "$APP_DIR/README.md"
 cp -r "$SRC/docs" "$APP_DIR/docs"
 cp -r "$SRC/tests" "$APP_DIR/tests"
 cp -r "$SRC/scripts" "$APP_DIR/scripts"
+cp -r "$SRC/examples" "$APP_DIR/examples"
+cp "$SRC/config.example.toml" "$APP_DIR/config.example.toml"
 install -m 0755 "$SRC/scripts/pingaroo" /usr/local/bin/pingaroo
 find "$APP_DIR" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
