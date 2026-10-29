@@ -374,15 +374,27 @@ def cmd_router_probe(args) -> int:
     err = r.login()
     if err:
         print(f"login: {err}", file=sys.stderr)
+    import urllib.error
+    rc = 0
     for path in cfg["router"]["status_paths"]:
-        status, raw = r._request(path)
+        try:
+            status, raw = r._request(path)
+        except (urllib.error.URLError, OSError) as exc:
+            reason = getattr(exc, "reason", exc)
+            print(f"=== GET {path} -> cannot reach {cfg['router']['base_url']}: {reason}")
+            print("    The Pi has no route to the gateway admin page. On this gateway the admin")
+            print("    interface answers only on 2.4 GHz. Pin the Pi to 2.4 GHz, then retry:")
+            print('      sudo nmcli connection modify "Kangaroo Labs" 802-11-wireless.band bg')
+            print('      sudo nmcli connection up "Kangaroo Labs"')
+            rc = 1
+            break
         text = raw.decode("utf-8", "replace")
         print(f"=== GET {path} -> HTTP {status} ({len(raw)} bytes)")
         try:
             print(json.dumps(json.loads(text), indent=2)[:args.max_chars])
         except ValueError:
             print(text[:args.max_chars])
-    return 0
+    return rc
 
 
 def cmd_splash(args) -> int:
