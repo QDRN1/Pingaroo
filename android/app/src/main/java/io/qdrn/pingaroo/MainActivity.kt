@@ -286,12 +286,16 @@ class MainActivity : AppCompatActivity() {
         tile("rssi").set("RSSI", s.rssi?.toString() ?: "-", "dBm", Thresholds.rssi(s.rssi), Thresholds.frac(s.rssi, -100, -50))
         renderStats()
 
+        // NR identity is often withheld in NSA (Samsung); the LTE anchor is the registered cell then.
+        val nrIdMissing = s.pci == null && s.cellId == null
+        val anchor = s.source == "phone" && nrIdMissing && (s.ltePci != null || s.lteCellId != null)
+        val idTag = if (anchor) " (LTE ANCHOR)" else ""
         tile("tech").set("TECH", s.tech.ifEmpty { "-" }, "", Thresholds.CYAN, big = false)
-        tile("band").set("BAND", s.band.ifEmpty { if (useLte) s.lteBand.ifEmpty { "-" } else "-" }, "", Thresholds.CYAN, big = false)
-        tile("pci").set("PCI", (s.pci ?: if (useLte) s.ltePci else null)?.toString() ?: "-", "", Thresholds.BLUE, big = false)
-        tile("cell").set("CELL ID", (s.cellId ?: if (useLte) s.lteCellId else null)?.toString() ?: "-", "", Thresholds.PURPLE, big = false)
-        tile("tac").set("TAC", s.tac?.toString() ?: "-", "", Thresholds.BLUE, big = false)
-        tile("arfcn").set("ARFCN", (s.arfcn ?: if (useLte) s.lteEarfcn else null)?.toString() ?: "-", "", Thresholds.MUTED, big = false)
+        tile("band").set("BAND$idTag", s.band.ifEmpty { if (useLte || anchor) s.lteBand.ifEmpty { "-" } else "-" }, "", Thresholds.CYAN, big = false)
+        tile("pci").set("PCI$idTag", (s.pci ?: if (useLte || anchor) s.ltePci else null)?.toString() ?: "-", "", Thresholds.BLUE, big = false)
+        tile("cell").set("CELL ID$idTag", (s.cellId ?: if (useLte || anchor) s.lteCellId else null)?.toString() ?: "-", "", Thresholds.PURPLE, big = false)
+        tile("tac").set("TAC$idTag", (s.tac ?: if (useLte || anchor) s.lteTac else null)?.toString() ?: "-", "", Thresholds.BLUE, big = false)
+        tile("arfcn").set("ARFCN$idTag", (s.arfcn ?: if (useLte || anchor) s.lteEarfcn else null)?.toString() ?: "-", "", Thresholds.MUTED, big = false)
         tile("bw").set("BANDWIDTH", s.bandwidth.ifEmpty { "-" }, "", Thresholds.MUTED, big = false)
         tile("operator").set("OPERATOR", s.operator.ifEmpty { "-" }, "", Thresholds.TEXT, big = false)
         tile("apn").set("APN", s.apn.ifEmpty { "-" }, "", Thresholds.AMBER, big = false)
@@ -410,6 +414,7 @@ class MainActivity : AppCompatActivity() {
         m.menu.add(0, 4, 3, "New session (clear stats)")
         m.menu.add(0, 5, 4, "Check for updates")
         m.menu.add(0, 6, 5, "About")
+        m.menu.add(0, 7, 6, "Radio debug dump")
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 1 -> startActivity(Intent(this, SnapshotsActivity::class.java))
@@ -419,6 +424,7 @@ class MainActivity : AppCompatActivity() {
                 4 -> confirmNewSession()
                 5 -> checkForUpdate(manual = true)
                 6 -> showAbout()
+                7 -> showRadioDebug()
             }
             true
         }
@@ -430,6 +436,18 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Clears the session stats, best spot and the snapshot list, and starts a new CSV file. Existing CSV files stay on the phone.")
             .setPositiveButton("Clear") { _, _ -> stats.reset(); SnapshotStore.clear(); spark.clear(); logger.newFile(); updateSpots(); renderStats() }
             .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun showRadioDebug() {
+        lifecycleScope.launch {
+            val text = try { phone.debugDump() } catch (e: Exception) { "dump failed: $e" }
+            AlertDialog.Builder(this@MainActivity).setTitle("Radio debug")
+                .setMessage(text.take(6000))
+                .setPositiveButton("Share") { _, _ ->
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }, "Share radio dump"))
+                }
+                .setNegativeButton("Close", null).show()
+        }
     }
 
     private fun showAbout() {

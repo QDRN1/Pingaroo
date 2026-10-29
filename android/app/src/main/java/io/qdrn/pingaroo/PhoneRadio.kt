@@ -100,6 +100,21 @@ class PhoneRadio(private val ctx: Context) {
         }
     }
 
+    /** Everything the phone reports, verbatim, for diagnosing what Samsung withholds. */
+    @Suppress("DEPRECATION")
+    suspend fun debugDump(): String {
+        val sb = StringBuilder()
+        sb.append("Device ${Build.MANUFACTURER} ${Build.MODEL} Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
+        sb.append("fine location: ${hasLocation()}  phone state: ${hasPhoneState()}\n")
+        sb.append("operator: ${try { tm.networkOperatorName } catch (e: Exception) { e.message }}\n")
+        sb.append("dataNetworkType: ${try { tm.dataNetworkType } catch (e: Exception) { e.message }}  override: $overrideType\n\n")
+        sb.append("== signalStrength ==\n${try { tm.signalStrength?.toString() } catch (e: Exception) { e.message }}\n\n")
+        sb.append("== serviceState ==\n${try { if (hasPhoneState()) tm.serviceState?.toString() else "(needs READ_PHONE_STATE)" } catch (e: Exception) { e.message }}\n\n")
+        sb.append("== cellInfo (fresh) ==\n")
+        for (c in freshCellInfo()) sb.append(c.toString()).append("\n")
+        return sb.toString()
+    }
+
     suspend fun fetch(label: String): Sample {
         if (!hasLocation()) return Sample(source = "phone", label = label, error = "location permission needed for cell info")
         start()
@@ -147,6 +162,7 @@ class PhoneRadio(private val ctx: Context) {
             lteEarfcn = earfcn,
             ltePci = lid?.pci?.let { vi(it) },
             lteCellId = lid?.ci?.let { vi(it) }?.toLong(),
+            lteTac = lid?.tac?.let { vi(it) },
             lteRsrp = lteSig?.rsrp?.let { vi(it) },
             lteRsrq = lteSig?.rsrq?.let { vi(it) },
             lteRssnr = lteSig?.rssnr?.let { vi(it) },
