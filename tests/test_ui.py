@@ -182,6 +182,8 @@ class ControllerBehaviour(unittest.TestCase):
         self.ctl.perform("next_label")
         self.assertEqual(self.state.label_override, "NRB")
         self.ctl.perform("next_label")
+        self.assertEqual(self.state.label_override, "D50003")
+        self.ctl.perform("next_label")
         self.assertEqual(self.state.label_override, "5GC")
 
     def test_frame_written(self):
