@@ -67,12 +67,12 @@ All settings live in `/etc/pingaroo/config.toml`. Edit by hand or with the CLI, 
 edits the file in place and validates it:
 
 ```bash
-pingaroo label "APN test"          # applies at the next cycle start, no restart
-pingaroo interval 600              # seconds from completion to next start
-pingaroo server 18531              # pin an Ookla server id (speedtest -L lists them)
-pingaroo server auto
-pingaroo sleep 300                 # screen sleep seconds, or: pingaroo sleep off
-pingaroo autostart on              # start the loop at boot
+sudo pingaroo label "APN test"          # applies at the next cycle start, no restart
+sudo pingaroo interval 600              # seconds from completion to next start
+sudo pingaroo server 18531              # pin an Ookla server id (speedtest -L lists them)
+sudo pingaroo server auto
+sudo pingaroo sleep 300                 # screen sleep seconds, or: pingaroo sleep off
+sudo pingaroo autostart on              # start the loop at boot
 sudo systemctl restart pingaroo    # apply interval / sleep / autostart / display / touch changes
 ```
 

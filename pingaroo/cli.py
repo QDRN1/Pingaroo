@@ -187,7 +187,11 @@ def cmd_events(args) -> int:
 def _set(args, section: str, key: str, value) -> int:
     cfg = _cfg(args)
     path = cfg["_path"]
-    config_mod.set_value(path, section, key, value)
+    try:
+        config_mod.set_value(path, section, key, value)
+    except PermissionError:
+        print(f"cannot write {path}: run this command with sudo", file=sys.stderr)
+        raise SystemExit(1)
     config_mod.load(path)  # re-validate
     print(f"{section}.{key} = {value!r}  ({path})")
     return 0
@@ -210,6 +214,7 @@ def cmd_labels(args) -> int:
         print("predefined labels: " + ", ".join(cfg["app"]["labels"]))
         return 0
     names = [n.strip() for n in args.names if n.strip()]
+    _need_root("editing the config")
     config_mod.set_value(cfg["_path"], "app", "labels", names)
     if cfg["app"]["label"] not in names:
         config_mod.set_value(cfg["_path"], "app", "label", names[0])
@@ -291,6 +296,7 @@ def cmd_wifi(args) -> int:
         ssid = res.stdout.strip().replace("\\:", ":") or profile
         print(f"active Wi-Fi: profile '{profile}' ssid '{ssid}' on {device}")
         if args.home_current:
+            _need_root("editing the config")
             config_mod.set_value(cfg["_path"], "wifi", "home_profile", profile)
             config_mod.set_value(cfg["_path"], "wifi", "home_ssid", ssid)
             print(f"wifi.home_profile = {profile!r}, wifi.home_ssid = {ssid!r}  (management network)")
@@ -305,6 +311,7 @@ def cmd_wifi(args) -> int:
         print("Use: --current | --home-current | --ssid NAME [--profile NAME] | --switch home|test")
         return 0
     path = cfg["_path"]
+    _need_root("editing the config")
     if args.ssid is not None:
         config_mod.set_value(path, "wifi", "ssid", args.ssid)
     if args.profile is not None:

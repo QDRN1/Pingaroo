@@ -182,16 +182,16 @@ If Wi-Fi does not connect, see `docs/NETWORK.md`.
 | One diagnostic cycle in the foreground | `sudo systemctl stop pingaroo && sudo pingaroo once` |
 | Recent results | `pingaroo results -n 20` |
 | Recent events | `pingaroo events -n 50` |
-| Change the configuration label | `pingaroo label "Config B"` (applies at the next cycle) |
+| Change the configuration label | `sudo pingaroo label "Config B"` (applies at the next cycle) |
 | Show or change the SSID / profile under test | `pingaroo wifi`, `sudo pingaroo wifi --current`, `sudo pingaroo wifi --ssid "Kangaroo Labs"` |
 | Remember the current Wi-Fi as the management (home) network | `sudo pingaroo wifi --home-current` |
 | Move the radio to the home or test network | `pingaroo wifi --switch home` / `--switch test` (also the Home Wi-Fi / Test Wi-Fi button in Details) |
 | Excel export with per-label summary | `pingaroo export` then `scp` the printed path |
 | Router cellular data | `sudo pingaroo router-password`, `sudo pingaroo router-probe <path>`, see `docs/ROUTER.md` |
-| Change the interval | `pingaroo interval 300 && sudo systemctl restart pingaroo` |
-| Pin or unpin a speed-test server | `speedtest -L`, then `pingaroo server 18531` or `pingaroo server auto` |
-| Screen sleep timeout | `pingaroo sleep 120`, `pingaroo sleep off`, then restart |
-| Autostart the loop at boot | `pingaroo autostart on` |
+| Change the interval | `sudo pingaroo interval 300 && sudo systemctl restart pingaroo` |
+| Pin or unpin a speed-test server | `speedtest -L`, then `sudo pingaroo server 18531` or `sudo pingaroo server auto` |
+| Screen sleep timeout | `sudo pingaroo sleep 120`, `sudo pingaroo sleep off`, then restart |
+| Autostart the loop at boot | `sudo pingaroo autostart on` |
 | Wi-Fi and routing check | `pingaroo check-wifi` |
 | WPA3 capability report | `./scripts/check-wpa3.sh` |
 | Raw touch coordinates | `sudo pingaroo check-touch` |
