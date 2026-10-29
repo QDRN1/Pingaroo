@@ -1,0 +1,86 @@
+# Cellular Router Worker Bee configuration
+# Install location: /etc/crwb/config.toml
+# Every key is optional; omitted keys use the defaults shown here.
+# No passwords belong in this file. The Wi-Fi password lives only in
+# /etc/NetworkManager/system-connections/ (root-only keyfile).
+
+[app]
+# Label stamped on every result at cycle start. Change it any time; the next cycle
+# picks it up without a restart (crwb label "Config B").
+label = "Config A"
+# Labels offered by the on-screen "Next Label" button in the Details view.
+labels = ["Config A", "Config B", "APN test"]
+# Start the test loop automatically at boot. Default: wait for Start Test.
+autostart = false
+# Seconds from the end of one attempt to the start of the next.
+interval_seconds = 300
+
+[wifi]
+ssid = "Kangaroo Labs"
+# NetworkManager connection profile name created by scripts/setup-wifi.sh.
+connection_name = "Kangaroo Labs"
+# Leave empty to auto-detect the Wi-Fi interface; set e.g. "wlan1" to override.
+interface = ""
+# One bounded connection attempt per cycle (association + DHCP).
+connect_timeout_seconds = 45
+
+[connectivity]
+ping_targets = ["1.1.1.1", "8.8.8.8"]
+ping_count = 4
+ping_timeout_seconds = 8
+gateway_ping_count = 2
+# Resolvers tried after the router's DHCP-supplied DNS, all bound to the Wi-Fi.
+dns_servers = ["1.1.1.1", "8.8.8.8"]
+dns_timeout_seconds = 3
+https_timeout_seconds = 8
+# Hard cap for the whole reachability stage.
+total_timeout_seconds = 30
+https_primary = { url = "https://detectportal.firefox.com/success.txt", expect_status = 200, expect_body = "success" }
+https_fallback = { url = "https://connectivitycheck.gstatic.com/generate_204", expect_status = 204, expect_body = "" }
+
+[speedtest]
+# Ookla Speedtest CLI binary. Point this at a script to simulate results.
+command = "speedtest"
+# 0 = let the tool pick a server; set an id (speedtest -L) to pin one for comparisons.
+server_id = 0
+timeout_seconds = 180
+# Pass --interface <wifi> to the tool in addition to the routing checks.
+bind_interface = true
+extra_args = []
+
+[display]
+# Leave empty to auto-detect the 480x320 framebuffer (e.g. /dev/fb1 with fbtft).
+framebuffer = ""
+width = 480
+height = 320
+# Screen sleeps this many seconds after the last touch. 0 disables sleep.
+sleep_seconds = 120
+font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+font_bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+# auto: switch tty1 to graphics mode only when the LCD is /dev/fb0 (no HDMI).
+console_graphics_mode = "auto"
+refresh_seconds = 1.0
+
+[touch]
+# Leave empty to auto-detect the ADS7846/XPT2046 evdev device.
+device = ""
+device_name_match = "ADS7846"
+# Calibration: run `sudo crwb calibrate-touch` to fill these in.
+swap_xy = true
+invert_x = false
+invert_y = true
+x_min = 200
+x_max = 3900
+y_min = 200
+y_max = 3900
+debounce_ms = 300
+tap_max_move_px = 24
+
+[logging]
+directory = "/var/lib/crwb"
+runtime_directory = "/run/crwb"
+csv_max_bytes = 5000000
+jsonl_max_bytes = 20000000
+# Rotated files kept per log (results.<stamp>.csv, events.<stamp>.jsonl).
+retention_files = 10
+low_disk_mb = 100

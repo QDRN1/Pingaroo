@@ -1,0 +1,26 @@
+[Unit]
+Description=Cellular Router Worker Bee (router test loop + touchscreen UI)
+Documentation=file:///opt/crwb/README.md
+After=NetworkManager.service systemd-udevd.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/crwb
+ExecStart=/usr/bin/python3 -m crwb run
+Restart=always
+RestartSec=5
+# Stop: SIGTERM to the main process; children (speedtest, ping) are in their own
+# process groups and are killed by the app before it exits.
+KillMode=mixed
+TimeoutStopSec=20
+RuntimeDirectory=crwb
+StateDirectory=crwb
+Environment=PYTHONUNBUFFERED=1
+Environment=CRWB_CONFIG=/etc/crwb/config.toml
+# Needs root: raw framebuffer + evdev, SO_BINDTODEVICE for interface-bound probes,
+# nmcli activation without a login session, and tty graphics mode.
+User=root
+
+[Install]
+WantedBy=multi-user.target
