@@ -9,4 +9,8 @@
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/bg</item>
     </style>
+    <style name="Theme.Pingaroo.Splash" parent="Theme.Pingaroo">
+        <item name="android:windowBackground">#0C0A24</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
 </resources>

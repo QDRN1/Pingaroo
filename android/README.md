@@ -11,9 +11,22 @@ two sources:
   for which side of the building faces the serving site. Not the same radio as the
   gateway; treat it as a proxy.
 
-Every sample is tagged with the GPS fix and the location label you type. Turn on
-**Log To CSV** to record, **Share CSV** to send the file (email, Drive, etc.). Big
-numbers colour by SINR: green 10 dB or better, amber 3 to 10, red under 3.
+**Boot screen**: the same 8-bit kangaroo as the Pi, sunset, stars, hop. Tap to skip.
+
+**Main screen**:
+- A verdict banner (EXCELLENT / GOOD / FAIR / POOR / INTERFERENCE) with a 5-bar meter,
+  computed from SINR first and RSRP second.
+- Signal tiles: RSRP, SINR, RSRQ, RSSI, each with its own colour scale and a level bar.
+  RSRP: green -80 or better, lime to -90, amber to -100, red below. SINR: green 20+,
+  lime 10+, amber 3+, red below. RSRQ: green -10 or better, amber to -15, red below.
+- Cell tiles: tech, band, PCI, cell id, TAC, ARFCN, bandwidth, operator, APN, WAN IP.
+- LTE anchor tiles when the device reports one (NSA): band, PCI, cell, RSRP, RSRQ, SNR, EARFCN.
+- A rolling sparkline of RSRP (blue) and SINR (amber), last 90 samples.
+- **Save Snapshot** asks "Where are you?", then writes one row tagged `event=snapshot`
+  with that label and the GPS fix. Use it at each spot you evaluate.
+- **Log To CSV** records every 2-second sample continuously; **Share CSV** sends the file.
+
+The tile grid is 3 wide on the cover screen and 4 wide on the inner screen.
 
 Tested target: Samsung Galaxy Z Fold, Android 14 or newer. Minimum Android 10.
 

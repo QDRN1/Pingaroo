@@ -34,17 +34,18 @@ data class Sample(
     val apn: String = "",
     val wanIp: String = "",
     val error: String = "",
+    val event: String = "",             // "" for periodic samples, "snapshot" for saved spots
 ) {
     companion object {
         val CSV_COLUMNS = listOf(
             "time", "source", "label", "lat", "lon", "accuracy_m", "tech", "operator", "band", "arfcn", "pci",
             "tac", "cell_id", "rsrp", "rsrq", "sinr", "rssi", "bandwidth", "lte_band", "lte_earfcn", "lte_pci",
-            "lte_cell_id", "lte_rsrp", "lte_rsrq", "lte_rssnr", "apn", "wan_ip", "error",
+            "lte_cell_id", "lte_rsrp", "lte_rsrq", "lte_rssnr", "apn", "wan_ip", "error", "event",
         )
     }
 
     fun csvRow(): List<Any?> = listOf(
         time, source, label, lat, lon, accuracyM, tech, operator, band, arfcn, pci, tac, cellId, rsrp, rsrq,
-        sinr, rssi, bandwidth, lteBand, lteEarfcn, ltePci, lteCellId, lteRsrp, lteRsrq, lteRssnr, apn, wanIp, error,
+        sinr, rssi, bandwidth, lteBand, lteEarfcn, ltePci, lteCellId, lteRsrp, lteRsrq, lteRssnr, apn, wanIp, error, event,
     )
 }

@@ -17,15 +17,20 @@
         android:theme="@style/Theme.Pingaroo">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".SplashActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
-            android:screenOrientation="unspecified">
+            android:theme="@style/Theme.Pingaroo.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:screenOrientation="unspecified" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
