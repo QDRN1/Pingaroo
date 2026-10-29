@@ -73,7 +73,7 @@ def sample_snapshot() -> dict[str, dict]:
     waiting["last_router"] = {"cell_carrier": "AT&T", "cell_technology": "5G NSA", "cell_band": "B66", "cell_earfcn": 66986,
                               "cell_cell_id": 12345678, "cell_pci": 301, "cell_tac": 24601, "cell_rsrp": -94, "cell_rsrq": -11,
                               "cell_sinr": 12, "cell_5g_band": "n77", "cell_5g_rsrp": -88, "cell_5g_sinr": 18, "cell_apn": "broadband",
-                              "cell_ip": "10.44.1.7", "cell_imei": "353282162196635", "cell_firmware": "NCM1120_1.2.3"}
+                              "cell_ip": "10.44.1.7", "cell_imei": "356938035643809", "cell_firmware": "NCM1120_1.2.3"}
 
     disconnected = copy.deepcopy(idle)
     disconnected.update(running=True, phase="Connecting", session=dict(session, cycles=1, successes=0, failures=0))

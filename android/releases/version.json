@@ -1,0 +1,6 @@
+{
+  "versionCode": 3,
+  "versionName": "1.2",
+  "apk": "android/releases/pingaroo-mobile-debug.apk",
+  "notes": "In-app updates, launch crash fix, 8-bit boot screen, colour tiles, snapshots."
+}

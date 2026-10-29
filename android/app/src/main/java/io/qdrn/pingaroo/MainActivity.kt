@@ -34,6 +34,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var phone: PhoneRadio
     private lateinit var location: LocationHelper
     private lateinit var logger: CsvLogger
+    private lateinit var updater: Updater
+    private var pendingUpdate: Updater.Info? = null
 
     private var source = "gateway"
     private var logging = false
@@ -50,6 +52,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tilesCell: LinearLayout
     private lateinit var tilesLte: LinearLayout
     private lateinit var sectionLte: TextView
+    private lateinit var updateBanner: TextView
 
     // tiles by key so we can update in place
     private val tiles = HashMap<String, TileView>()
@@ -74,6 +77,8 @@ class MainActivity : AppCompatActivity() {
         tilesCell = findViewById(R.id.tilesCell)
         tilesLte = findViewById(R.id.tilesLte)
         sectionLte = findViewById(R.id.sectionLte)
+        updateBanner = findViewById(R.id.updateBanner)
+        updater = Updater(this)
 
         phone = PhoneRadio(this)
         location = LocationHelper(this)
@@ -97,6 +102,9 @@ class MainActivity : AppCompatActivity() {
                 ?: run { status.text = "Nothing logged yet. Save a snapshot or turn on Log To CSV." }
         }
         findViewById<MaterialButton>(R.id.snapshotBtn).setOnClickListener { askSnapshot() }
+        findViewById<MaterialButton>(R.id.updateBtn).setOnClickListener { checkForUpdate(manual = true) }
+        updateBanner.setOnClickListener { pendingUpdate?.let { installUpdate(it) } }
+        checkForUpdate(manual = false)
         gatewayUrl.setOnEditorActionListener { v, _, _ ->
             gateway = GatewayClient(v.text.toString().trim().ifEmpty { "http://192.168.1.1" })
             false
@@ -240,6 +248,66 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .show()
         input.requestFocus()
+    }
+
+    // ---------------------------------------------------------------- updates
+    private fun checkForUpdate(manual: Boolean) {
+        lifecycleScope.launch {
+            try {
+                val info = updater.check()
+                if (updater.isNewer(info)) {
+                    pendingUpdate = info
+                    updateBanner.text = "Update available: v${info.versionName}  (tap to install)" +
+                        if (info.notes.isNotEmpty()) "\n${info.notes}" else ""
+                    updateBanner.visibility = View.VISIBLE
+                    if (manual) installUpdate(info)
+                } else if (manual) {
+                    Toast.makeText(this@MainActivity, "Up to date (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Updater.AuthRequired) {
+                if (manual) askToken()
+            } catch (e: Exception) {
+                if (manual) Toast.makeText(this@MainActivity, "Update check failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun installUpdate(info: Updater.Info) {
+        AlertDialog.Builder(this)
+            .setTitle("Install v${info.versionName}?")
+            .setMessage((info.notes.ifEmpty { "A newer build is on GitHub." }) + "\n\nAndroid will ask you to confirm the install.")
+            .setPositiveButton("Download") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        updateBanner.visibility = View.VISIBLE
+                        val apk = updater.download(info) { pct -> updateBanner.text = "Downloading v${info.versionName}: $pct%" }
+                        updateBanner.text = "Downloaded. Opening installer…"
+                        startActivity(updater.installIntent(apk))
+                    } catch (e: Updater.AuthRequired) {
+                        askToken()
+                    } catch (e: Exception) {
+                        updateBanner.text = "Update failed: ${e.message}"
+                    }
+                }
+            }
+            .setNegativeButton("Later", null)
+            .show()
+    }
+
+    private fun askToken() {
+        val input = EditText(this).apply {
+            hint = "GitHub token (Contents: read on QDRN1/Pingaroo)"
+            setText(updater.token)
+            val d = resources.displayMetrics.density
+            setPadding((20 * d).toInt(), (16 * d).toInt(), (20 * d).toInt(), (16 * d).toInt())
+        }
+        AlertDialog.Builder(this)
+            .setTitle("GitHub access needed")
+            .setMessage("The Pingaroo repo is private. Paste a fine-grained personal access token with read access to Contents. It is stored only on this phone.")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ -> updater.token = input.text.toString(); checkForUpdate(manual = true) }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun updateLogInfo() {
