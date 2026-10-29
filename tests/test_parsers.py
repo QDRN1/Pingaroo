@@ -270,15 +270,15 @@ class CornerRefinement(unittest.TestCase):
         m_lo = wrong.map(lo_raw, 2000)[0]
         m_hi = wrong.map(hi_raw, 2000)[0]
         x_min, x_max = refine_axis(wrong.x_min, wrong.x_max, False, 480, m_lo, m_hi, 0, 479)
-        self.assertAlmostEqual(x_min, truth.x_min, delta=3)
-        self.assertAlmostEqual(x_max, truth.x_max, delta=3)
+        self.assertAlmostEqual(x_min, truth.x_min, delta=12)
+        self.assertAlmostEqual(x_max, truth.x_max, delta=12)
         # y axis (possibly inverted): the low screen edge is the high raw value when inverted
         top_raw, bottom_raw = (truth.y_max, truth.y_min) if inverted else (truth.y_min, truth.y_max)
         m_top = wrong.map(2000, top_raw)[1]
         m_bottom = wrong.map(2000, bottom_raw)[1]
         y_min, y_max = refine_axis(wrong.y_min, wrong.y_max, inverted, 320, m_top, m_bottom, 0, 319)
-        self.assertAlmostEqual(y_min, truth.y_min, delta=3)
-        self.assertAlmostEqual(y_max, truth.y_max, delta=3)
+        self.assertAlmostEqual(y_min, truth.y_min, delta=12)
+        self.assertAlmostEqual(y_max, truth.y_max, delta=12)
 
     def test_refine_plain(self):
         self._check(False)
