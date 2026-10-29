@@ -1,26 +1,39 @@
 package io.qdrn.pingaroo
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.location.LocationManager
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.PopupMenu
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.materialswitch.MaterialSwitch
-import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -30,31 +43,40 @@ import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var prefs: Prefs
     private lateinit var gateway: GatewayClient
     private lateinit var phone: PhoneRadio
     private lateinit var location: LocationHelper
+    private lateinit var wifi: WifiWatcher
     private lateinit var logger: CsvLogger
     private lateinit var updater: Updater
-    private var pendingUpdate: Updater.Info? = null
+    private var tone: ToneGenerator? = null
 
     private var source = "gateway"
-    private var logging = false
     private var label = ""
+    private var paused = false
     private var last: Sample? = null
+    private var lastAt = 0L
+    private var pendingUpdate: Updater.Info? = null
+    private val stats = SessionStats()
 
     private lateinit var verdict: VerdictView
     private lateinit var spark: SparklineView
     private lateinit var status: TextView
-    private lateinit var logInfo: TextView
+    private lateinit var footer: TextView
     private lateinit var clock: TextView
-    private lateinit var gatewayUrl: TextInputEditText
+    private lateinit var contextLine: TextView
+    private lateinit var freshness: TextView
+    private lateinit var updateBanner: TextView
     private lateinit var tilesSignal: LinearLayout
+    private lateinit var tilesStats: LinearLayout
     private lateinit var tilesCell: LinearLayout
     private lateinit var tilesLte: LinearLayout
     private lateinit var sectionLte: TextView
-    private lateinit var updateBanner: TextView
+    private lateinit var pauseBtn: MaterialButton
+    private lateinit var spotsBtn: MaterialButton
+    private lateinit var logSwitch: MaterialSwitch
 
-    // tiles by key so we can update in place
     private val tiles = HashMap<String, TileView>()
     private var columns = 3
 
@@ -65,75 +87,88 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        prefs = Prefs(this)
+        source = prefs.source
+        label = prefs.label
+        applyKeepScreenOn()
 
         verdict = findViewById(R.id.verdict)
         spark = findViewById(R.id.spark)
         status = findViewById(R.id.status)
-        logInfo = findViewById(R.id.logInfo)
+        footer = findViewById(R.id.footer)
         clock = findViewById(R.id.clock)
-        gatewayUrl = findViewById(R.id.gatewayUrl)
+        contextLine = findViewById(R.id.contextLine)
+        freshness = findViewById(R.id.freshness)
+        updateBanner = findViewById(R.id.updateBanner)
         tilesSignal = findViewById(R.id.tilesSignal)
+        tilesStats = findViewById(R.id.tilesStats)
         tilesCell = findViewById(R.id.tilesCell)
         tilesLte = findViewById(R.id.tilesLte)
         sectionLte = findViewById(R.id.sectionLte)
-        updateBanner = findViewById(R.id.updateBanner)
-        updater = Updater(this)
+        pauseBtn = findViewById(R.id.pauseBtn)
+        spotsBtn = findViewById(R.id.spotsBtn)
+        logSwitch = findViewById(R.id.logSwitch)
 
         phone = PhoneRadio(this)
         location = LocationHelper(this)
+        wifi = WifiWatcher(this)
         logger = CsvLogger(this)
-        gateway = GatewayClient(gatewayUrl.text?.toString()?.trim().orEmpty().ifEmpty { "http://192.168.1.1" })
+        updater = Updater(this)
+        gateway = GatewayClient(prefs.gatewayUrl)
 
-        buildTiles()
+        footer.text = "Pingaroo Mobile v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})  ·  Designed by Collin · QDRN"
+        footer.setOnClickListener { showAbout() }
 
-        findViewById<MaterialButtonToggleGroup>(R.id.sourceGroup).addOnButtonCheckedListener { _, checkedId, isChecked ->
+        val group = findViewById<MaterialButtonToggleGroup>(R.id.sourceGroup)
+        group.check(if (source == "phone") R.id.btnPhone else R.id.btnGateway)
+        group.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (isChecked) {
                 source = if (checkedId == R.id.btnPhone) "phone" else "gateway"
+                prefs.source = source
                 spark.clear()
                 buildTiles()
             }
         }
-        findViewById<MaterialSwitch>(R.id.logSwitch).setOnCheckedChangeListener { _, on ->
-            logging = on
-            updateLogInfo()
-        }
-        findViewById<MaterialButton>(R.id.shareBtn).setOnClickListener {
-            logger.shareIntent()?.let { startActivity(Intent.createChooser(it, "Share CSV")) }
-                ?: run { status.text = "Nothing logged yet. Save a snapshot or turn on Log To CSV." }
-        }
-        findViewById<MaterialButton>(R.id.snapshotBtn).setOnClickListener { askSnapshot() }
-        findViewById<MaterialButton>(R.id.updateBtn).setOnClickListener { checkForUpdate(manual = true) }
+        logSwitch.isChecked = prefs.logging
+        logSwitch.setOnCheckedChangeListener { _, on -> prefs.logging = on; updateSpots() }
+        findViewById<MaterialButton>(R.id.snapshotBtn).setOnClickListener { askSnapshot(it) }
+        spotsBtn.setOnClickListener { startActivity(Intent(this, SnapshotsActivity::class.java)) }
+        pauseBtn.setOnClickListener { togglePause() }
+        findViewById<MaterialButton>(R.id.menuBtn).setOnClickListener { showMenu(it) }
         updateBanner.setOnClickListener { pendingUpdate?.let { installUpdate(it) } }
-        checkForUpdate(manual = false)
-        gatewayUrl.setOnEditorActionListener { v, _, _ ->
-            gateway = GatewayClient(v.text.toString().trim().ifEmpty { "http://192.168.1.1" })
-            false
-        }
+        verdict.setOnClickListener { last?.let { if (it.error.isNotEmpty()) openFixFor(it) } }
 
+        buildTiles()
+        updateSpots()
         permissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.READ_PHONE_STATE))
+        if (prefs.autoUpdate) checkForUpdate(manual = false)
 
+        // sampling loop
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                location.start()
-                phone.start()
+                location.start(); wifi.start(); phone.start()
                 try {
                     while (isActive) {
-                        val raw = if (source == "gateway") gateway.fetch(label) else phone.fetch(label)
-                        val loc = location.last
-                        val sample = raw.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
-                        last = sample
-                        render(sample)
-                        if (logging && sample.error.isEmpty()) {
-                            logger.append(sample)
-                            updateLogInfo()
+                        if (!paused) {
+                            val raw = if (source == "gateway") gateway.fetch(label) else phone.fetch(label)
+                            val loc = location.last
+                            val sample = raw.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
+                            last = sample; lastAt = System.currentTimeMillis()
+                            render(sample)
+                            if (prefs.logging && sample.error.isEmpty()) { logger.append(sample); updateSpots() }
+                            if (prefs.tone && sample.error.isEmpty()) beepFor(sample)
                         }
-                        delay(2000)
+                        delay(prefs.pollMs)
                     }
                 } finally {
-                    location.stop()
-                    phone.stop()
+                    location.stop(); wifi.stop(); phone.stop()
                 }
+            }
+        }
+        // 1 Hz clock / freshness ticker
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (isActive) { tick(); delay(1000) }
             }
         }
     }
@@ -142,6 +177,45 @@ class MainActivity : AppCompatActivity() {
         super.onConfigurationChanged(newConfig)
         buildTiles()
         last?.let { render(it) }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        tone?.release(); tone = null
+    }
+
+    private fun applyKeepScreenOn() {
+        if (prefs.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    // ------------------------------------------------------------- ticker
+    private fun tick() {
+        clock.text = SimpleDateFormat("EEE MMM d  HH:mm:ss", Locale.US).format(Date())
+        if (paused) { freshness.text = "PAUSED"; freshness.setTextColor(Thresholds.AMBER); return }
+        if (lastAt == 0L) { freshness.text = "waiting for first reading"; freshness.setTextColor(Thresholds.MUTED); return }
+        val age = (System.currentTimeMillis() - lastAt) / 1000
+        freshness.text = if (age < 1) "updated just now" else "updated ${age}s ago"
+        freshness.setTextColor(when { age > 30 -> Thresholds.RED; age > 10 -> Thresholds.AMBER; else -> Thresholds.MUTED })
+        // context line
+        contextLine.text = if (source == "gateway") {
+            val ss = wifi.ssid
+            val l = last
+            when {
+                !wifi.onWifi -> "Phone is not on Wi-Fi: join the gateway's network"
+                l != null && l.error.isEmpty() -> "Wi-Fi ${ss.ifEmpty { "?" }} · gateway ${prefs.gatewayUrl.removePrefix("http://")} · ${l.fetchMs ?: "-"} ms"
+                else -> "Wi-Fi ${ss.ifEmpty { "?" }} · gateway ${prefs.gatewayUrl.removePrefix("http://")} not answering"
+            }
+        } else {
+            val l = last
+            "Phone radio · ${l?.operator?.ifEmpty { "-" } ?: "-"} · ${l?.tech?.ifEmpty { "-" } ?: "-"} · poll ${prefs.pollMs / 1000}s"
+        }
+    }
+
+    private fun togglePause() {
+        paused = !paused
+        pauseBtn.text = if (paused) "Resume" else "Pause"
+        tick()
     }
 
     // ------------------------------------------------------------------ tiles
@@ -165,56 +239,65 @@ class MainActivity : AppCompatActivity() {
             t.layoutParams = LinearLayout.LayoutParams(0, (height * d).toInt(), 1f).apply { marginEnd = if (lastInRow) 0 else (6 * d).toInt() }
             row!!.addView(t)
         }
-        // an orphan on the last row stretches across; no empty spacers
     }
 
     private fun buildTiles() {
         val wide = resources.configuration.screenWidthDp >= 600
         columns = if (wide) 4 else 3
         grid(tilesSignal, listOf("rsrp", "sinr", "rsrq", "rssi"), cols = if (wide) 4 else 2, height = 88)
+        grid(tilesStats, listOf("session", "srsrp", "ssinr", "best"), cols = if (wide) 4 else 2, height = 64)
         if (source == "gateway")
             grid(tilesCell, listOf("tech", "band", "pci", "cell", "tac", "arfcn", "bw", "apn", "wan"))
         else
             grid(tilesCell, listOf("tech", "band", "pci", "cell", "tac", "arfcn", "bw", "level", "operator"))
         grid(tilesLte, listOf("lband", "lpci", "lcell", "lrsrp", "lrsrq", "lsnr", "learfcn"), height = 64)
+        renderStats()
+    }
+
+    private fun arrow(cur: Int?, prev: Int?): String = when {
+        cur == null || prev == null -> ""
+        cur > prev -> " ▲"
+        cur < prev -> " ▼"
+        else -> " ▬"
     }
 
     private fun render(s: Sample) {
-        clock.text = SimpleDateFormat("EEE MMM d  HH:mm:ss", Locale.US).format(Date())
         if (s.error.isNotEmpty()) {
-            verdict.set(if (s.source == "gateway") "GATEWAY OFFLINE" else "NO RADIO DATA", Thresholds.RED, 0,
-                s.error + if (s.source == "gateway") "  (phone on Kangaroo Labs?)" else "")
+            val (title, hint) = errorPresentation(s)
+            verdict.set(title, Thresholds.RED, 0, hint)
             status.text = ""
             return
         }
-        // Big tiles: NR values when present, else the LTE serving cell (phone on LTE)
         val useLte = s.rsrp == null && s.lteRsrp != null
         val rsrp = if (useLte) s.lteRsrp else s.rsrp
         val sinr = if (useLte) s.lteRssnr else s.sinr
         val rsrq = if (useLte) s.lteRsrq else s.rsrq
         val tag = if (useLte) " (LTE)" else if (s.source == "phone" && s.rsrp != null) " (NR)" else ""
+        val prevR = stats.prevRsrp; val prevS = stats.prevSinr
+        stats.add(rsrp, sinr, label)
         val (v, col) = Thresholds.verdict(rsrp, sinr)
         val bars = when (v) { "EXCELLENT" -> 5; "GOOD" -> 4; "FAIR" -> 3; "POOR" -> 2; "INTERFERENCE" -> 1; else -> 0 }
         val where = if (label.isNotEmpty()) "at $label" else "no location label"
-        val op = if (s.operator.isNotEmpty()) " · ${s.operator}" else ""
-        verdict.set(v, col, bars, "${s.source.replaceFirstChar { it.uppercase() }} · ${s.tech.ifEmpty { "-" }}$op · $where")
+        verdict.set(v, col, bars, "${s.source.replaceFirstChar { it.uppercase() }} · ${s.tech.ifEmpty { "-" }} · $where")
 
-        tile("rsrp").set("RSRP$tag", rsrp?.toString() ?: "-", "dBm", Thresholds.rsrp(rsrp), Thresholds.frac(rsrp, -120, -60))
-        tile("sinr").set("SINR$tag", sinr?.toString() ?: "-", "dB", Thresholds.sinr(sinr), Thresholds.frac(sinr, -5, 30))
+        tile("rsrp").set("RSRP$tag", rsrp?.toString() ?: "-", "dBm" + arrow(rsrp, prevR), Thresholds.rsrp(rsrp), Thresholds.frac(rsrp, -120, -60))
+        tile("sinr").set("SINR$tag", sinr?.toString() ?: "-", "dB" + arrow(sinr, prevS), Thresholds.sinr(sinr), Thresholds.frac(sinr, -5, 30))
         tile("rsrq").set("RSRQ$tag", rsrq?.toString() ?: "-", "dB", Thresholds.rsrq(rsrq), Thresholds.frac(rsrq, -20, -3))
         tile("rssi").set("RSSI", s.rssi?.toString() ?: "-", "dBm", Thresholds.rssi(s.rssi), Thresholds.frac(s.rssi, -100, -50))
-        tile("level").set("ANDROID LEVEL", s.level?.let { "$it / 4" } ?: "-", "", when (s.level) { 4 -> Thresholds.GREEN; 3 -> Thresholds.LIME; 2 -> Thresholds.AMBER; null -> Thresholds.MUTED; else -> Thresholds.RED }, big = false)
+        renderStats()
 
         tile("tech").set("TECH", s.tech.ifEmpty { "-" }, "", Thresholds.CYAN, big = false)
-        tile("band").set("BAND", s.band.ifEmpty { "-" }, "", Thresholds.CYAN, big = false)
-        tile("pci").set("PCI", s.pci?.toString() ?: "-", "", Thresholds.BLUE, big = false)
-        tile("cell").set("CELL ID", s.cellId?.toString() ?: "-", "", Thresholds.PURPLE, big = false)
+        tile("band").set("BAND", s.band.ifEmpty { if (useLte) s.lteBand.ifEmpty { "-" } else "-" }, "", Thresholds.CYAN, big = false)
+        tile("pci").set("PCI", (s.pci ?: if (useLte) s.ltePci else null)?.toString() ?: "-", "", Thresholds.BLUE, big = false)
+        tile("cell").set("CELL ID", (s.cellId ?: if (useLte) s.lteCellId else null)?.toString() ?: "-", "", Thresholds.PURPLE, big = false)
         tile("tac").set("TAC", s.tac?.toString() ?: "-", "", Thresholds.BLUE, big = false)
-        tile("arfcn").set("ARFCN", s.arfcn?.toString() ?: "-", "", Thresholds.MUTED, big = false)
+        tile("arfcn").set("ARFCN", (s.arfcn ?: if (useLte) s.lteEarfcn else null)?.toString() ?: "-", "", Thresholds.MUTED, big = false)
         tile("bw").set("BANDWIDTH", s.bandwidth.ifEmpty { "-" }, "", Thresholds.MUTED, big = false)
         tile("operator").set("OPERATOR", s.operator.ifEmpty { "-" }, "", Thresholds.TEXT, big = false)
         tile("apn").set("APN", s.apn.ifEmpty { "-" }, "", Thresholds.AMBER, big = false)
         tile("wan").set("WAN IP", s.wanIp.ifEmpty { "-" }, "", Thresholds.MUTED, big = false)
+        tile("level").set("ANDROID LEVEL", s.level?.let { "$it / 4" } ?: "-", "",
+            when (s.level) { 4 -> Thresholds.GREEN; 3 -> Thresholds.LIME; 2 -> Thresholds.AMBER; null -> Thresholds.MUTED; else -> Thresholds.RED }, big = false)
 
         val hasLte = (s.lteBand.isNotEmpty() || s.lteRsrp != null || s.ltePci != null) && !useLte
         sectionLte.visibility = if (hasLte) View.VISIBLE else View.GONE
@@ -228,18 +311,69 @@ class MainActivity : AppCompatActivity() {
             tile("lsnr").set("LTE SNR", s.lteRssnr?.toString() ?: "-", "dB", Thresholds.sinr(s.lteRssnr), big = false)
             tile("learfcn").set("EARFCN", s.lteEarfcn?.toString() ?: "-", "", Thresholds.MUTED, big = false)
         }
-
         spark.push(rsrp, sinr)
         val gps = if (s.lat != null) "GPS %.5f, %.5f (±%.0f m)".format(s.lat, s.lon, s.accuracyM ?: 0f) else "GPS: no fix yet"
-        status.text = "$gps   ·   ${s.time.substring(11, 19)}"
+        status.text = "$gps   ·   sample ${s.time.substring(11, 19)}"
+    }
+
+    private fun renderStats() {
+        val e = stats.elapsedS
+        tile("session").set("SESSION", "${e / 60}:${"%02d".format(e % 60)}", "${stats.samples} samples", Thresholds.TEXT, big = false)
+        tile("srsrp").set("RSRP MIN / AVG / MAX", "${stats.rsrp.lo ?: "-"} / ${stats.rsrp.avg ?: "-"} / ${stats.rsrp.hi ?: "-"}", "", Thresholds.rsrp(stats.rsrp.avg), big = false)
+        tile("ssinr").set("SINR MIN / AVG / MAX", "${stats.sinr.lo ?: "-"} / ${stats.sinr.avg ?: "-"} / ${stats.sinr.hi ?: "-"}", "", Thresholds.sinr(stats.sinr.avg), big = false)
+        val best = SnapshotStore.best()
+        if (best != null) {
+            val bs = best.sinr ?: best.lteRssnr
+            tile("best").set("BEST SPOT", best.label.ifEmpty { "(no label)" }, "SINR ${bs ?: "-"}", Thresholds.sinr(bs), big = false)
+        } else tile("best").set("BEST SPOT", "-", "save snapshots", Thresholds.MUTED, big = false)
+    }
+
+    // ------------------------------------------------------------- errors
+    private fun errorPresentation(s: Sample): Pair<String, String> {
+        if (s.source == "gateway") {
+            return "GATEWAY OFFLINE" to if (!wifi.onWifi) "Phone is not on Wi-Fi. Join Kangaroo Labs." else
+                "No answer from ${prefs.gatewayUrl.removePrefix("http://")} on Wi-Fi '${wifi.ssid.ifEmpty { "?" }}'. ${s.error}"
+        }
+        val locOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return when {
+            !locOk -> "PERMISSION NEEDED" to "Android needs Location permission to expose cell data. Tap here to grant it."
+            !lm.isLocationEnabled -> "LOCATION OFF" to "Turn on Location services; Android hides cell data without it. Tap here."
+            else -> "NO RADIO DATA" to s.error
+        }
+    }
+
+    private fun openFixFor(s: Sample) {
+        if (s.source == "gateway") return
+        val locOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        when {
+            !locOk -> startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            !lm.isLocationEnabled -> startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        }
+    }
+
+    // ---------------------------------------------------------------- tone
+    private fun beepFor(s: Sample) {
+        val sinr = s.sinr ?: s.lteRssnr
+        val rsrp = s.rsrp ?: s.lteRsrp
+        val (v, _) = Thresholds.verdict(rsrp, sinr)
+        val t = tone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 60).also { tone = it }
+        val type = when (v) {
+            "EXCELLENT" -> ToneGenerator.TONE_DTMF_9
+            "GOOD" -> ToneGenerator.TONE_DTMF_6
+            "FAIR" -> ToneGenerator.TONE_DTMF_3
+            "POOR" -> ToneGenerator.TONE_DTMF_1
+            else -> ToneGenerator.TONE_SUP_ERROR
+        }
+        try { t.startTone(type, 90) } catch (_: Exception) { }
     }
 
     // --------------------------------------------------------------- snapshot
-    private fun askSnapshot() {
+    private fun askSnapshot(anchor: View) {
         val input = EditText(this).apply {
             hint = getString(R.string.snapshot_hint)
-            setText(label)
-            setSelection(text.length)
+            setText(label); setSelection(text.length)
             val d = resources.displayMetrics.density
             setPadding((20 * d).toInt(), (16 * d).toInt(), (20 * d).toInt(), (16 * d).toInt())
         }
@@ -247,21 +381,98 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.snapshot_title)
             .setView(input)
             .setPositiveButton("Save") { _, _ ->
-                label = input.text.toString().trim()
+                label = input.text.toString().trim(); prefs.label = label
                 val s = last
-                if (s == null || s.error.isNotEmpty()) {
-                    Toast.makeText(this, "No reading to save yet", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
+                if (s == null || s.error.isNotEmpty()) { Toast.makeText(this, "No reading to save yet", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
                 val snap = s.copy(label = label, event = "snapshot")
-                logger.append(snap)
-                updateLogInfo()
+                logger.append(snap); SnapshotStore.add(snap)
+                anchor.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                updateSpots(); renderStats()
                 last?.let { render(it.copy(label = label)) }
-                Toast.makeText(this, "Saved $label: RSRP ${snap.rsrp ?: "-"}  SINR ${snap.sinr ?: "-"}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Saved $label: RSRP ${snap.rsrp ?: snap.lteRsrp ?: "-"}  SINR ${snap.sinr ?: snap.lteRssnr ?: "-"}", Toast.LENGTH_LONG).show()
             }
             .setNegativeButton("Cancel", null)
             .show()
         input.requestFocus()
+    }
+
+    private fun updateSpots() {
+        spotsBtn.text = "Spots (${SnapshotStore.items.size})"
+        CsvLogger.lastShareIntent = logger.shareIntent()
+    }
+
+    // ------------------------------------------------------------------ menu
+    private fun showMenu(anchor: View) {
+        val m = PopupMenu(this, anchor)
+        m.menu.add(0, 1, 0, "Snapshots")
+        m.menu.add(0, 2, 1, "Share CSV")
+        m.menu.add(0, 3, 2, "Settings")
+        m.menu.add(0, 4, 3, "New session (clear stats)")
+        m.menu.add(0, 5, 4, "Check for updates")
+        m.menu.add(0, 6, 5, "About")
+        m.setOnMenuItemClickListener {
+            when (it.itemId) {
+                1 -> startActivity(Intent(this, SnapshotsActivity::class.java))
+                2 -> logger.shareIntent()?.let { i -> startActivity(Intent.createChooser(i, "Share CSV")) }
+                    ?: Toast.makeText(this, "Nothing logged yet", Toast.LENGTH_SHORT).show()
+                3 -> showSettings()
+                4 -> confirmNewSession()
+                5 -> checkForUpdate(manual = true)
+                6 -> showAbout()
+            }
+            true
+        }
+        m.show()
+    }
+
+    private fun confirmNewSession() {
+        AlertDialog.Builder(this).setTitle("New session?")
+            .setMessage("Clears the session stats, best spot and the snapshot list, and starts a new CSV file. Existing CSV files stay on the phone.")
+            .setPositiveButton("Clear") { _, _ -> stats.reset(); SnapshotStore.clear(); spark.clear(); logger.newFile(); updateSpots(); renderStats() }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun showAbout() {
+        val pi = packageManager.getPackageInfo(packageName, 0)
+        val built = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(pi.lastUpdateTime))
+        AlertDialog.Builder(this).setTitle("Pingaroo Mobile")
+            .setMessage("Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})\nInstalled $built\n" +
+                "Device ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE}\n\n" +
+                "Designed by Collin · QDRN\nSource: github.com/QDRN1/Pingaroo\n\n" +
+                "Gateway source reads the AT&T Internet Air (NCM1120) over its Wi-Fi. Phone source reads this phone's radio; it is a proxy, not the gateway.")
+            .setPositiveButton("OK", null).show()
+    }
+
+    private fun showSettings() {
+        val d = resources.displayMetrics.density
+        fun pad(v: View) = v.apply { setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), (8 * d).toInt()) }
+        val url = EditText(this).apply { hint = "Gateway URL"; setText(prefs.gatewayUrl) }
+        val poll = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        val options = listOf(1000L to "1 s", 2000L to "2 s", 5000L to "5 s")
+        for ((ms, name) in options) poll.addView(RadioButton(this).apply { text = name; tag = ms; isChecked = prefs.pollMs == ms })
+        val toneSw = Switch(this).apply { text = "Audio tone follows signal quality"; isChecked = prefs.tone }
+        val keepSw = Switch(this).apply { text = "Keep screen on"; isChecked = prefs.keepScreenOn }
+        val autoSw = Switch(this).apply { text = "Check for updates on launch"; isChecked = prefs.autoUpdate }
+        val token = EditText(this).apply { hint = "GitHub token (only if the repo is private)"; setText(updater.token) }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(pad(TextView(this@MainActivity).apply { text = "Gateway"; setTextColor(Thresholds.AMBER) }))
+            addView(pad(url))
+            addView(pad(TextView(this@MainActivity).apply { text = "Poll interval"; setTextColor(Thresholds.AMBER) }))
+            addView(pad(poll))
+            addView(pad(toneSw)); addView(pad(keepSw)); addView(pad(autoSw))
+            addView(pad(TextView(this@MainActivity).apply { text = "Updates"; setTextColor(Thresholds.AMBER) }))
+            addView(pad(token))
+        }
+        AlertDialog.Builder(this).setTitle("Settings").setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Save") { _, _ ->
+                prefs.gatewayUrl = url.text.toString(); gateway = GatewayClient(prefs.gatewayUrl)
+                for (i in 0 until poll.childCount) { val rb = poll.getChildAt(i) as RadioButton; if (rb.isChecked) prefs.pollMs = rb.tag as Long }
+                prefs.tone = toneSw.isChecked; prefs.keepScreenOn = keepSw.isChecked; prefs.autoUpdate = autoSw.isChecked
+                updater.token = token.text.toString()
+                applyKeepScreenOn(); tick()
+            }
+            .setNegativeButton("Cancel", null).show()
     }
 
     // ---------------------------------------------------------------- updates
@@ -271,8 +482,7 @@ class MainActivity : AppCompatActivity() {
                 val info = updater.check()
                 if (updater.isNewer(info)) {
                     pendingUpdate = info
-                    updateBanner.text = "Update available: v${info.versionName}  (tap to install)" +
-                        if (info.notes.isNotEmpty()) "\n${info.notes}" else ""
+                    updateBanner.text = "Update available: v${info.versionName}  (tap to install)" + if (info.notes.isNotEmpty()) "\n${info.notes}" else ""
                     updateBanner.visibility = View.VISIBLE
                     if (manual) installUpdate(info)
                 } else if (manual) {
@@ -309,23 +519,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun askToken() {
-        val input = EditText(this).apply {
-            hint = "GitHub token (Contents: read on QDRN1/Pingaroo)"
-            setText(updater.token)
-            val d = resources.displayMetrics.density
-            setPadding((20 * d).toInt(), (16 * d).toInt(), (20 * d).toInt(), (16 * d).toInt())
-        }
-        AlertDialog.Builder(this)
-            .setTitle("GitHub access needed")
-            .setMessage("The Pingaroo repo is private. Paste a fine-grained personal access token with read access to Contents. It is stored only on this phone.")
+        val input = EditText(this).apply { hint = "GitHub token"; setText(updater.token) }
+        AlertDialog.Builder(this).setTitle("GitHub access needed")
+            .setMessage("The repo is private. Paste a fine-grained token with Contents: read. It is stored only on this phone.")
             .setView(input)
             .setPositiveButton("Save") { _, _ -> updater.token = input.text.toString(); checkForUpdate(manual = true) }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun updateLogInfo() {
-        logInfo.text = (if (logging) "Logging every 2 s" else "Continuous log off") +
-            "  ·  ${logger.count} rows in ${logger.path().substringAfterLast('/')}"
+            .setNegativeButton("Cancel", null).show()
     }
 }

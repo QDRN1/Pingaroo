@@ -14,6 +14,11 @@ class CsvLogger(private val ctx: Context) {
     var count = 0
         private set
 
+    companion object {
+        /** Set by the main screen so other screens can share the current file. */
+        var lastShareIntent: Intent? = null
+    }
+
     private fun ensureFile(): File {
         file?.let { return it }
         val dir = ctx.getExternalFilesDir(null) ?: ctx.filesDir
@@ -35,6 +40,8 @@ class CsvLogger(private val ctx: Context) {
     }
 
     fun path(): String = file?.absolutePath ?: "(no log yet)"
+
+    fun newFile() { file = null; count = 0 }
 
     fun shareIntent(): Intent? {
         val f = file ?: return null

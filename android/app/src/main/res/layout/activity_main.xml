@@ -17,11 +17,11 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingStart="14dp"
-            android:paddingTop="10dp"
+            android:paddingTop="8dp"
             android:paddingEnd="14dp"
             android:paddingBottom="8dp">
 
-            <!-- header -->
+            <!-- header: logo | clock | pause | menu -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -40,10 +40,10 @@
                     android:layout_weight="1"
                     android:gravity="end"
                     android:textColor="@color/muted"
-                    android:textSize="14sp" />
+                    android:textSize="13sp" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/updateBtn"
+                    android:id="@+id/pauseBtn"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
@@ -51,8 +51,20 @@
                     android:minWidth="0dp"
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp"
-                    android:text="@string/update"
+                    android:text="Pause"
                     android:textSize="12sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/menuBtn"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="6dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:text="☰"
+                    android:textSize="16sp" />
             </LinearLayout>
 
             <TextView
@@ -70,7 +82,7 @@
                 android:id="@+id/sourceGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="8dp"
                 app:checkedButton="@id/btnGateway"
                 app:selectionRequired="true"
                 app:singleSelection="true">
@@ -79,7 +91,7 @@
                     android:id="@+id/btnGateway"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="0dp"
-                    android:layout_height="52dp"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="@string/source_gateway"
                     android:textSize="15sp" />
@@ -88,25 +100,62 @@
                     android:id="@+id/btnPhone"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="0dp"
-                    android:layout_height="52dp"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="@string/source_phone"
                     android:textSize="15sp" />
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
-            <!-- verdict banner -->
+            <!-- context strip: where we are reading from, and how fresh -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/contextLine"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/freshness"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
             <io.qdrn.pingaroo.VerdictView
                 android:id="@+id/verdict"
                 android:layout_width="match_parent"
                 android:layout_height="92dp"
-                android:layout_marginTop="10dp" />
+                android:layout_marginTop="8dp" />
 
-            <!-- tiles -->
             <LinearLayout
                 android:id="@+id/tilesSignal"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="4dp"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/sectionStats"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="SESSION"
+                android:textColor="@color/amber"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/tilesStats"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:orientation="vertical" />
 
             <TextView
@@ -123,7 +172,6 @@
                 android:id="@+id/tilesCell"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
                 android:orientation="vertical" />
 
             <TextView
@@ -140,7 +188,6 @@
                 android:id="@+id/tilesLte"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
                 android:orientation="vertical" />
 
             <io.qdrn.pingaroo.SparklineView
@@ -153,40 +200,17 @@
                 android:id="@+id/status"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:textColor="@color/muted"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/logInfo"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="8dp"
                 android:textColor="@color/muted"
                 android:textSize="12sp" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:hint="@string/gateway_url_hint">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/gatewayUrl"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="textUri"
-                    android:text="http://192.168.1.1"
-                    android:textColor="@color/text" />
-            </com.google.android.material.textfield.TextInputLayout>
-
             <TextView
+                android:id="@+id/footer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="10dp"
                 android:gravity="center"
-                android:text="@string/credit"
+                android:padding="8dp"
                 android:textColor="@color/muted"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -218,15 +242,15 @@
             android:layout_width="0dp"
             android:layout_height="52dp"
             android:layout_marginEnd="8dp"
-            android:layout_weight="1.3"
+            android:layout_weight="1.4"
             android:text="@string/snapshot" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/shareBtn"
+            android:id="@+id/spotsBtn"
             style="?attr/materialButtonOutlinedStyle"
             android:layout_width="0dp"
             android:layout_height="52dp"
             android:layout_weight="1"
-            android:text="Share" />
+            android:text="Spots" />
     </LinearLayout>
 </LinearLayout>

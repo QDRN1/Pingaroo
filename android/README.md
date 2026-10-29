@@ -26,6 +26,22 @@ two sources:
   with that label and the GPS fix. Use it at each spot you evaluate.
 - **Log To CSV** records every 2-second sample continuously; **Share CSV** sends the file.
 
+- Context strip: which Wi-Fi the phone is on and whether the gateway answers (with
+  round-trip ms), or operator and tech on the Phone source; and "updated Ns ago",
+  turning amber past 10 s and red past 30 s.
+- Pause/Resume freezes the readings; trend arrows on RSRP and SINR show the change
+  since the previous sample.
+- Session tiles: elapsed time and sample count, RSRP and SINR min/avg/max, best spot
+  so far (highest SINR snapshot).
+- Spots screen: every snapshot this session ranked by SINR, best marked, tap for the
+  full detail, remove, share.
+- Menu (☰): Snapshots, Share CSV, Settings, New session, Check for updates, About.
+- Settings: gateway URL, poll interval (1/2/5 s), audio tone that follows signal
+  quality (for walking without looking), keep screen on, auto update check, GitHub token.
+- Error states explain themselves: permission missing or location off get a tap-to-fix.
+- Version and build number in the footer and on the boot screen; label, source and
+  settings persist across launches.
+
 The tile grid is 3 wide on the cover screen and 4 wide on the inner screen.
 
 Tested target: Samsung Galaxy Z Fold, Android 14 or newer. Minimum Android 10.

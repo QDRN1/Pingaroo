@@ -39,6 +39,7 @@ class GatewayClient(private val baseUrl: String = "http://192.168.1.1") {
         optString(key, "").trim().removeSuffix("dBm").removeSuffix("dB").trim().toIntOrNull()
 
     suspend fun fetch(label: String): Sample = withContext(Dispatchers.IO) {
+        val t0 = System.currentTimeMillis()
         try {
             val endc = get("/cgi-bin/GetENDCInfo")
             val now = System.currentTimeMillis()
@@ -78,6 +79,7 @@ class GatewayClient(private val baseUrl: String = "http://192.168.1.1") {
                 lteRssnr = anchor?.intOrNull("sinr"),
                 apn = slow.optString("APN_Name", ""),
                 wanIp = slow.optString("ConnIP", ""),
+                fetchMs = System.currentTimeMillis() - t0,
             )
         } catch (e: Exception) {
             Sample(source = "gateway", label = label, error = (e.message ?: e.javaClass.simpleName).take(80))

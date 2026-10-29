@@ -36,6 +36,7 @@ data class Sample(
     val error: String = "",
     val event: String = "",             // "" for periodic samples, "snapshot" for saved spots
     val level: Int? = null,             // Android signal level 0..4 (phone source)
+    val fetchMs: Long? = null,          // gateway API round trip
 ) {
     companion object {
         val CSV_COLUMNS = listOf(

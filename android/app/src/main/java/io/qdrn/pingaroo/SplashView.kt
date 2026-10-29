@@ -65,6 +65,7 @@ class SplashView(ctx: Context) : View(ctx) {
         PixelArt.drawText(c, "PINGAROO", 232 * u, 40 * u, ts, Color.rgb(250, 246, 230), paint)
         PixelArt.drawText(c, "MOBILE", 232 * u, 86 * u, 3f * u, Color.rgb(255, 240, 180), paint)
         PixelArt.drawText(c, "DESIGNED BY COLLIN", 232 * u, 118 * u, 2f * u, Color.rgb(250, 246, 230), paint)
+        PixelArt.drawText(c, "V" + BuildConfig.VERSION_NAME, 232 * u, 140 * u, 2f * u, Color.rgb(255, 240, 180), paint)
         if ((t * 2).toInt() % 2 == 0) {
             val msg = "TAP TO START"
             PixelArt.drawText(c, msg, (w - PixelArt.textWidth(msg, 3f * u)) / 2, h - 50 * u, 3f * u, Color.rgb(250, 246, 230), paint)
