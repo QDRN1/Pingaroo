@@ -303,6 +303,21 @@ class CornerRefinement(unittest.TestCase):
 
 
 class RouterAdapter(unittest.TestCase):
+    def test_redact(self):
+        from pingaroo.router import redact
+        data = {"5G_WLAN": "Kangaroo Labs/hunter2(sae-mixed)", "2_4G_WLAN": "Kangaroo Labs/hunter2(sae-mixed)",
+                "Password": "x", "UserName": "", "Key": "abc", "APN_Name": "d50003.etr", "nested": {"psk": "z"},
+                "list": [{"token": "t"}], "Fwver": "254311"}
+        out = redact(data)
+        self.assertEqual(out["5G_WLAN"], "Kangaroo Labs (sae-mixed)")
+        self.assertEqual(out["Password"], "REDACTED")
+        self.assertEqual(out["Key"], "REDACTED")
+        self.assertEqual(out["nested"]["psk"], "REDACTED")
+        self.assertEqual(out["list"][0]["token"], "REDACTED")
+        self.assertEqual(out["APN_Name"], "d50003.etr")
+        self.assertEqual(out["Fwver"], "254311")
+        self.assertNotIn("hunter2", str(out))
+
     def test_dig_and_coerce(self):
         from pingaroo.router import dig, _coerce
         data = {"mobile": {"signal": {"rsrp": "-95 dBm", "cells": [{"pci": 301}]}}}

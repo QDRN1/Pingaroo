@@ -57,6 +57,29 @@ def dig(data, path: str):
     return cur
 
 
+_SECRET_KEY = re.compile(r"(password|passwd|psk|passphrase|secret|^key$|_key$|token|sessionid)", re.I)
+_SSID_WITH_PSK = re.compile(r"^(?P<ssid>[^/]+)/.+\((?P<mode>[^)]*)\)$")
+
+
+def redact(obj):
+    """Strip credentials from router JSON before it is logged.  Password-like keys
+    become 'REDACTED'; NCM1120 '<ssid>/<psk>(mode)' strings keep only the SSID."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if _SECRET_KEY.search(str(k)):
+                out[k] = "REDACTED" if v not in ("", None) else v
+            elif isinstance(v, str) and str(k).upper().endswith("_WLAN"):
+                m = _SSID_WITH_PSK.match(v)
+                out[k] = f"{m.group('ssid')} ({m.group('mode')})" if m else v
+            else:
+                out[k] = redact(v)
+        return out
+    if isinstance(obj, list):
+        return [redact(x) for x in obj]
+    return obj
+
+
 def _coerce(value):
     if isinstance(value, (int, float)) or value is None:
         return value
@@ -153,6 +176,7 @@ class HttpJsonRouter:
             except ValueError:
                 out.setdefault("errors", []).append(f"{path}: not JSON ({text[:60]!r})")
                 continue
+            data = redact(data)
             raw_pages[path] = data
             if isinstance(data, dict):
                 merged.update(data)
