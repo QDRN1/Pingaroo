@@ -81,6 +81,34 @@ def pick_framebuffer(configured: str, width: int, height: int) -> tuple[FbInfo |
         ", ".join(f"{fb.path}={fb.width}x{fb.height}" for fb in fbs) + ")"
 
 
+# Pixel packing with Pillow band operations only (C speed, no numpy).  Pillow 12
+# removed the "BGR;16" raw packer, so RGB565 is assembled from the channels:
+#   high byte = R[7:3] | G[7:5],  low byte = G[4:2] << 3 | B[7:3]   (little-endian)
+_LUT_R_HI = bytes((v & 0xF8) for v in range(256))
+_LUT_G_HI = bytes((v >> 5) for v in range(256))
+_LUT_G_LO = bytes(((v & 0x1C) << 3) for v in range(256))
+_LUT_B_LO = bytes((v >> 3) for v in range(256))
+
+
+def rgb_to_rgb565(img: Image.Image) -> bytes:
+    from PIL import ImageChops
+    r, g, b = img.convert("RGB").split()
+    hi = ImageChops.add(r.point(_LUT_R_HI), g.point(_LUT_G_HI))
+    lo = ImageChops.add(g.point(_LUT_G_LO), b.point(_LUT_B_LO))
+    return Image.merge("LA", (lo, hi)).tobytes()
+
+
+def rgb_to_bgrx(img: Image.Image) -> bytes:
+    r, g, b = img.convert("RGB").split()
+    x = Image.new("L", img.size, 0)
+    return Image.merge("RGBA", (b, g, r, x)).tobytes()
+
+
+def rgb_to_bgr(img: Image.Image) -> bytes:
+    r, g, b = img.convert("RGB").split()
+    return Image.merge("RGB", (b, g, r)).tobytes()
+
+
 class Framebuffer:
     def __init__(self, info: FbInfo) -> None:
         self.info = info
@@ -108,13 +136,13 @@ class Framebuffer:
         if img.size != (info.width, info.height):
             img = img.resize((info.width, info.height))
         if info.bpp == 16:
-            data = img.convert("RGB").tobytes("raw", "BGR;16")
+            data = rgb_to_rgb565(img)
             row_bytes = info.width * 2
         elif info.bpp == 32:
-            data = img.convert("RGB").tobytes("raw", "BGRX")
+            data = rgb_to_bgrx(img)
             row_bytes = info.width * 4
         elif info.bpp == 24:
-            data = img.convert("RGB").tobytes("raw", "BGR")
+            data = rgb_to_bgr(img)
             row_bytes = info.width * 3
         else:
             raise RuntimeError(f"unsupported framebuffer depth {info.bpp} bpp")

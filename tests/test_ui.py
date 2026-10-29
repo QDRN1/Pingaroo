@@ -60,7 +60,7 @@ class Layout(unittest.TestCase):
 
 class ControllerBehaviour(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.cfg = test_config()
         self.cfg["logging"]["directory"] = self.tmp.name
         self.cfg["display"]["sleep_seconds"] = 1
@@ -80,6 +80,7 @@ class ControllerBehaviour(unittest.TestCase):
 
     def tearDown(self):
         self.worker.shutdown()
+        wait_until(lambda: not self.worker.cycle_running and not self.state.running, 5)
         self.tmp.cleanup()
 
     def tap(self, x, y, t=None):
