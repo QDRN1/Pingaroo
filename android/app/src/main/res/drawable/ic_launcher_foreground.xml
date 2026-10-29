@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- amber ring (the Pingaroo dot) with four signal bars -->
+    <path android:fillColor="#FAB830" android:pathData="M54,22a14,14 0 1,0 0.01,0z"/>
+    <path android:fillColor="#0A0D14" android:pathData="M54,30a6,6 0 1,0 0.01,0z"/>
+    <path android:fillColor="#48D26E" android:pathData="M30,78h7v8h-7z M41,72h7v14h-7z M52,66h7v20h-7z M63,58h7v28h-7z"/>
+</vector>

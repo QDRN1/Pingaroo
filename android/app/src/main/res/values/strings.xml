@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Pingaroo Mobile</string>
+    <string name="source_gateway">Gateway</string>
+    <string name="source_phone">Phone</string>
+    <string name="label_hint">Location label (e.g. roof, window south)</string>
+    <string name="log_csv">Log To CSV</string>
+    <string name="share_csv">Share CSV</string>
+    <string name="gateway_url_hint">Gateway URL</string>
+</resources>

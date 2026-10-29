@@ -1,0 +1,13 @@
+<resources>
+    <color name="bg">#0A0D14</color>
+    <color name="panel">#1A212E</color>
+    <color name="panel_edge">#2C3648</color>
+    <color name="text">#F2F4F8</color>
+    <color name="muted">#969EAC</color>
+    <color name="green">#48D26E</color>
+    <color name="amber">#FAB830</color>
+    <color name="red">#F05448</color>
+    <color name="blue">#5CA0FA</color>
+    <color name="cyan">#46C8DC</color>
+    <color name="ic_launcher_background">#0A0D14</color>
+</resources>
