@@ -125,7 +125,7 @@ using cellular data, then restore `command = "speedtest"`.
 pingaroo export
 ```
 
-Writes `/var/lib/pingaroo/export/pingaroo-results-<date>.xlsx` with three sheets:
+Writes `~/pingaroo-exports/pingaroo-results-<date>.xlsx` with three sheets:
 **Results** (every CSV row including rotated files, filterable, status colour-coded),
 **Summary by Label** (attempts, successes, success %, first/last time, mean/median/
 min/max download, upload and latency, average Wi-Fi dBm and RSRP, failure counts by

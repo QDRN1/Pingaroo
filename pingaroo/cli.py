@@ -344,9 +344,13 @@ def cmd_export(args) -> int:
     if not rows:
         print("no results to export")
         return 1
-    out = args.out or os.path.join(cfg["logging"]["directory"], "export",
-                                   time.strftime("pingaroo-results-%Y%m%d-%H%M.xlsx"))
-    export.write_xlsx(rows, out)
+    home = os.path.expanduser("~" + (os.environ.get("SUDO_USER") or ""))
+    out = args.out or os.path.join(home, "pingaroo-exports", time.strftime("pingaroo-results-%Y%m%d-%H%M.xlsx"))
+    try:
+        export.write_xlsx(rows, out)
+    except PermissionError:
+        print(f"cannot write {out}: choose a writable path with --out", file=sys.stderr)
+        return 1
     print(f"wrote {len(rows)} rows to {out}")
     try:
         import socket

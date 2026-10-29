@@ -165,7 +165,7 @@ pingaroo export
 ```
 
 ```bash
-scp pingaroo@192.168.7.11:/var/lib/pingaroo/export/*.xlsx .
+scp pingaroo@192.168.7.11:pingaroo-exports/*.xlsx .
 ```
 
 If the display shows nothing or the touch axes are wrong, see `docs/DISPLAY.md`.
