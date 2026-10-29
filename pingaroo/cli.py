@@ -369,6 +369,32 @@ def cmd_router_probe(args) -> int:
     return 0
 
 
+def cmd_splash(args) -> int:
+    """Replay the boot splash on the LCD (or write frames to PNG with --out)."""
+    from .splash import render_splash, show_splash
+    from .ui import Fonts
+    cfg = _cfg(args)
+    d = cfg["display"]
+    fonts = Fonts(d["font"], d["font_bold"])
+    if args.out:
+        os.makedirs(args.out, exist_ok=True)
+        for i in range(6):
+            render_splash(d["width"], d["height"], i * 0.25, fonts).save(os.path.join(args.out, f"splash_{i}.png"))
+        print(f"wrote frames to {args.out}")
+        return 0
+    from .display import Framebuffer, pick_framebuffer
+    _need_root("drawing on the framebuffer")
+    info, note = pick_framebuffer(d["framebuffer"], d["width"], d["height"])
+    if not info:
+        print(f"no framebuffer: {note}")
+        return 1
+    fb = Framebuffer(info)
+    show_splash(fb, info.width, info.height, fonts, args.seconds)
+    fb.close()
+    print("done (the service redraws its screen within a second)")
+    return 0
+
+
 def cmd_config(args) -> int:
     cfg = _cfg(args)
     path = cfg.pop("_path")
@@ -709,6 +735,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-login", action="store_true")
     s.add_argument("--max-chars", type=int, default=6000)
     s.set_defaults(func=cmd_router_probe)
+
+    s = sub.add_parser("splash", help="replay the 8-bit boot splash")
+    s.add_argument("--seconds", type=float, default=4.0)
+    s.add_argument("--out", default=None, help="write PNG frames here instead of drawing")
+    s.set_defaults(func=cmd_splash)
 
     s = sub.add_parser("config", help="print the effective configuration")
     s.set_defaults(func=cmd_config)

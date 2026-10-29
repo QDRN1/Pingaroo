@@ -213,3 +213,13 @@ class WifiSwitchButton(unittest.TestCase):
         snap = sample_data.sample_snapshot()["idle"]
         img, _ = r.render_main(snap, {})
         self.assertEqual(img.size, (480, 320))
+
+
+class Splash(unittest.TestCase):
+    def test_frames_render(self):
+        from pingaroo.splash import render_splash
+        from pingaroo.ui import Fonts
+        cfg = test_config()
+        f = Fonts(cfg["display"]["font"], cfg["display"]["font_bold"])
+        for t in (0.0, 0.5, 1.3):
+            self.assertEqual(render_splash(480, 320, t, f).size, (480, 320))

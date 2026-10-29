@@ -276,6 +276,13 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
                     if mode == "always" or (mode == "auto" and console_on_framebuffer(info.index) in (True, None) and info.index == 0):
                         console.enable()
                     storage.write_event("display_attached", **extra, note=fb_note)
+                    if cfg["display"]["splash_seconds"] > 0:
+                        from .splash import show_splash
+                        show_splash(fb, info.width, info.height, renderer.fonts,
+                                    float(cfg["display"]["splash_seconds"]))
+                        while not touch_q.empty():
+                            touch_q.get_nowait()
+                        controller.last_touch_mono = time.monotonic()
                     controller.fb = fb
                     controller.render(force=True)
                 except OSError as exc:

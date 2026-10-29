@@ -80,6 +80,7 @@ DEFAULTS: dict[str, Any] = {
         "font_bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "console_graphics_mode": "auto",
         "refresh_seconds": 1.0,
+        "splash_seconds": 4.0,
     },
     "touch": {
         "device": "",

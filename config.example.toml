@@ -85,6 +85,8 @@ font_bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 # auto: switch tty1 to graphics mode only when the LCD is /dev/fb0 (no HDMI).
 console_graphics_mode = "auto"
 refresh_seconds = 1.0
+# Boot splash animation length; 0 disables it.
+splash_seconds = 4.0
 
 [touch]
 # Leave empty to auto-detect the ADS7846/XPT2046 evdev device.
