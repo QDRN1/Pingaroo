@@ -34,6 +34,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.materialswitch.MaterialSwitch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -60,6 +63,8 @@ class MainActivity : AppCompatActivity() {
     private var pendingUpdate: Updater.Info? = null
     private var gatewayMisses = 0
     private val stats = SessionStats()
+    private var loopScope: CoroutineScope? = null
+    private var loopJob: Job? = null
 
     private lateinit var verdict: VerdictView
     private lateinit var spark: SparklineView
@@ -127,7 +132,11 @@ class MainActivity : AppCompatActivity() {
                 source = if (checkedId == R.id.btnPhone) "phone" else "gateway"
                 prefs.source = source
                 spark.clear()
+                gatewayMisses = 0
+                last = null; lastAt = 0L
                 buildTiles()
+                verdict.set("SWITCHING", Thresholds.AMBER, 0, "Reading from the ${if (source == "gateway") "gateway" else "phone radio"}…")
+                restartLoop()
             }
         }
         logSwitch.isChecked = prefs.logging
@@ -144,29 +153,14 @@ class MainActivity : AppCompatActivity() {
         permissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.READ_PHONE_STATE))
         if (prefs.autoUpdate) checkForUpdate(manual = false)
 
-        // sampling loop
+        // sampling loop: lifecycle-bound scope, restartable job (source switch cancels in-flight work)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 location.start(); wifi.start(); phone.start()
-                try {
-                    while (isActive) {
-                        if (!paused) {
-                            val raw = if (source == "gateway") gateway.fetch(label) else phone.fetch(label)
-                            val loc = location.last
-                            val sample = raw.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
-                            if (sample.source == "gateway" && sample.error.isNotEmpty()) {
-                                gatewayMisses++
-                                // keep the last good reading on screen through brief misses
-                                if (gatewayMisses < 3 && last != null && last!!.error.isEmpty()) { tick(); delay(prefs.pollMs); continue }
-                            } else gatewayMisses = 0
-                            last = sample; lastAt = System.currentTimeMillis()
-                            render(sample)
-                            if (prefs.logging && sample.error.isEmpty()) { logger.append(sample); updateSpots() }
-                            if (prefs.tone && sample.error.isEmpty()) beepFor(sample)
-                        }
-                        delay(prefs.pollMs)
-                    }
-                } finally {
+                loopScope = this
+                restartLoop()
+                try { awaitCancellation() } finally {
+                    loopJob?.cancel(); loopJob = null; loopScope = null
                     location.stop(); wifi.stop(); phone.stop()
                 }
             }
@@ -175,6 +169,31 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (isActive) { tick(); delay(1000) }
+            }
+        }
+    }
+
+    private fun restartLoop() {
+        loopJob?.cancel()
+        val scope = loopScope ?: return
+        loopJob = scope.launch {
+            while (isActive) {
+                if (!paused) {
+                    val src = source
+                    val raw = if (src == "gateway") gateway.fetch(label) else phone.fetch(label)
+                    if (!isActive || src != source) break      // switched while fetching: a new loop owns the screen
+                    val loc = location.last
+                    val sample = raw.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
+                    if (sample.source == "gateway" && sample.error.isNotEmpty()) {
+                        gatewayMisses++
+                        if (gatewayMisses < 3 && last != null && last!!.error.isEmpty()) { tick(); delay(prefs.pollMs); continue }
+                    } else gatewayMisses = 0
+                    last = sample; lastAt = System.currentTimeMillis()
+                    render(sample)
+                    if (prefs.logging && sample.error.isEmpty()) { logger.append(sample); updateSpots() }
+                    if (prefs.tone && sample.error.isEmpty()) beepFor(sample)
+                }
+                delay(prefs.pollMs)
             }
         }
     }
@@ -224,6 +243,7 @@ class MainActivity : AppCompatActivity() {
         paused = !paused
         pauseBtn.text = if (paused) "Resume" else "Pause"
         tick()
+        if (!paused) restartLoop()
     }
 
     // ------------------------------------------------------------------ tiles
@@ -496,7 +516,7 @@ class MainActivity : AppCompatActivity() {
                 for (i in 0 until poll.childCount) { val rb = poll.getChildAt(i) as RadioButton; if (rb.isChecked) prefs.pollMs = rb.tag as Long }
                 prefs.tone = toneSw.isChecked; prefs.keepScreenOn = keepSw.isChecked; prefs.autoUpdate = autoSw.isChecked
                 updater.token = token.text.toString()
-                applyKeepScreenOn(); tick()
+                applyKeepScreenOn(); tick(); restartLoop()
             }
             .setNegativeButton("Cancel", null).show()
     }
