@@ -121,10 +121,20 @@ class ConfigError(Exception):
     pass
 
 
+# Tables whose keys are user-defined (column names, field maps); these are taken
+# as-is instead of being validated key-by-key against the defaults.
+_OPAQUE_TABLES = {"router.fields", "router.login_fields"}
+
+
 def _deep_merge(base: dict, override: dict, path: str = "") -> dict:
     out = copy.deepcopy(base)
     for key, value in override.items():
         full = f"{path}.{key}" if path else key
+        if full in _OPAQUE_TABLES:
+            if not isinstance(value, dict):
+                raise ConfigError(f"Config key {full} must be a table")
+            out[key] = copy.deepcopy(value)
+            continue
         if key not in base:
             raise ConfigError(f"Unknown config key: {full}")
         if isinstance(base[key], dict):
