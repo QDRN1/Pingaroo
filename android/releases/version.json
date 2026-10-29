@@ -1,6 +1,6 @@
 {
-  "versionCode": 6,
-  "versionName": "1.5",
+  "versionCode": 7,
+  "versionName": "1.6",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Updater threading fix, LTE-anchor identity fallback, Radio debug dump"
+  "notes": "Gateway bound to Wi-Fi (fixes offline-while-connected), 3-miss hysteresis, instant source switch, RSRP-only verdict, LTE-anchor identity, radio debug dump"
 }
