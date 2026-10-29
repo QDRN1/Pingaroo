@@ -242,6 +242,41 @@ def cmd_autostart(args) -> int:
     return _set(args, "app", "autostart", args.value.lower() in ("on", "true", "yes", "1"))
 
 
+def cmd_wifi(args) -> int:
+    """Show or set which SSID / NetworkManager profile the test uses."""
+    from . import shell
+    cfg = _cfg(args)
+    if args.current:
+        res = shell.run(["nmcli", "-t", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active"], timeout=8)
+        active = [l.split(":") for l in res.stdout.splitlines() if l.count(":") >= 2]
+        wifi = [a for a in active if a[1] == "802-11-wireless"]
+        if not wifi:
+            print("no active Wi-Fi connection found (nmcli connection show --active)", file=sys.stderr)
+            return 1
+        profile, _, device = wifi[0][0].replace("\\:", ":"), wifi[0][1], wifi[0][2]
+        res = shell.run(["nmcli", "-t", "-g", "802-11-wireless.ssid", "connection", "show", profile], timeout=8)
+        ssid = res.stdout.strip().replace("\\:", ":") or profile
+        args.ssid, args.profile = ssid, profile
+        print(f"active Wi-Fi: profile '{profile}' ssid '{ssid}' on {device}")
+    if args.ssid is None and args.profile is None:
+        print(f"wifi.ssid            = {cfg['wifi']['ssid']}")
+        print(f"wifi.connection_name = {cfg['wifi']['connection_name']}")
+        print(f"wifi.interface       = {cfg['wifi']['interface'] or '(auto)'}")
+        print("Use: crwb wifi --current   |   crwb wifi --ssid NAME --profile NAME")
+        return 0
+    path = cfg["_path"]
+    if args.ssid is not None:
+        config_mod.set_value(path, "wifi", "ssid", args.ssid)
+    if args.profile is not None:
+        config_mod.set_value(path, "wifi", "connection_name", args.profile)
+    elif args.ssid is not None:
+        config_mod.set_value(path, "wifi", "connection_name", args.ssid)
+    cfg = config_mod.load(path)
+    print(f"wifi.ssid = {cfg['wifi']['ssid']!r}, wifi.connection_name = {cfg['wifi']['connection_name']!r}  ({path})")
+    print("Restart the service to apply: sudo systemctl restart crwb")
+    return 0
+
+
 def cmd_config(args) -> int:
     cfg = _cfg(args)
     path = cfg.pop("_path")
@@ -517,6 +552,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("autostart", help="show or set autostart of the test loop at boot (on/off)")
     s.add_argument("value", nargs="?")
     s.set_defaults(func=cmd_autostart)
+
+    s = sub.add_parser("wifi", help="show or set the SSID / NetworkManager profile under test")
+    s.add_argument("--current", action="store_true", help="use the Wi-Fi network the Pi is connected to right now")
+    s.add_argument("--ssid", default=None)
+    s.add_argument("--profile", default=None, help="NetworkManager connection name (defaults to the SSID)")
+    s.set_defaults(func=cmd_wifi)
 
     s = sub.add_parser("config", help="print the effective configuration")
     s.set_defaults(func=cmd_config)

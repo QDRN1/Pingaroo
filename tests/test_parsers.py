@@ -207,3 +207,19 @@ class CalibrationMap(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WifiCommand(unittest.TestCase):
+    def test_wifi_sets_ssid_and_profile(self):
+        from crwb import cli
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "c.toml")
+            with open(path, "w") as fh:
+                fh.write('[app]\nlabel = "x"\n')
+            rc = cli.main(["--config", path, "wifi", "--ssid", "HomeNet", "--profile", "preconfigured"])
+            self.assertEqual(rc, 0)
+            cfg = config.load(path)
+            self.assertEqual(cfg["wifi"]["ssid"], "HomeNet")
+            self.assertEqual(cfg["wifi"]["connection_name"], "preconfigured")
+            rc = cli.main(["--config", path, "wifi", "--ssid", "Kangaroo Labs"])
+            self.assertEqual(config.load(path)["wifi"]["connection_name"], "Kangaroo Labs")

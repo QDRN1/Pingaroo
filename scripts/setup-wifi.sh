@@ -80,6 +80,9 @@ chown root:root "$FILE"
 unset PSK PSK2
 nmcli connection reload
 echo "Profile written to $FILE (root-only)."
+if command -v crwb >/dev/null; then
+  crwb wifi --ssid "$SSID" --profile "$NAME" || true
+fi
 
 echo "== Driver / supplicant WPA3 capability"
 "$(dirname "$0")/check-wpa3.sh" "$IFACE" || true

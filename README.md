@@ -49,8 +49,7 @@ cycle was in progress, and returns to Idle keeping the last results on screen.
 
 ## Install (Copy and Paste)
 
-Flash Raspberry Pi OS Lite 64-bit with SSH enabled and no Wi-Fi configured in
-Imager. Boot with Ethernet for management, then:
+Flash Raspberry Pi OS Lite 64-bit with SSH enabled. Boot it, log in over SSH, update:
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y && sudo reboot
@@ -58,8 +57,8 @@ sudo apt update && sudo apt full-upgrade -y && sudo reboot
 
 ```bash
 sudo apt install -y git
-git clone https://github.com/<you>/cellular-router-worker-bee.git
-cd cellular-router-worker-bee
+git clone https://github.com/QDRN1/Pingaroo.git
+cd Pingaroo
 sudo ./scripts/install.sh
 ```
 
@@ -67,17 +66,20 @@ sudo ./scripts/install.sh
 sudo ./scripts/install-speedtest.sh
 ```
 
+### Path A: Management over Ethernet
+
+Plug Ethernet in for SSH so the Wi-Fi radio is free for testing. Create the WPA3
+profile for the router (password prompted, stored only in NetworkManager):
+
 ```bash
 sudo ./scripts/setup-wifi.sh
 ```
 
-Power off, attach the display, power on, then enable the LCD overlay and reboot:
+Power off, attach the display, power on, enable the LCD overlay and reboot:
 
 ```bash
 sudo ./scripts/setup-display.sh && sudo reboot
 ```
-
-After reboot, verify the panel and calibrate touch, then start:
 
 ```bash
 crwb check-display --test
@@ -89,6 +91,61 @@ sudo crwb calibrate-touch
 
 ```bash
 sudo systemctl start crwb && crwb status
+```
+
+### Path B: No Ethernet, SSH Over the Pi's Own Wi-Fi
+
+The Pi 4B has one radio. It cannot stay on the Wi-Fi you are SSH'd through and join
+the router's Wi-Fi at the same time. So: finish the whole install and prove the loop
+on the Wi-Fi you are connected to now, then switch the test SSID as the last step.
+
+Point the app at the network you are on (reads the active NetworkManager profile):
+
+```bash
+sudo crwb wifi --current
+```
+
+Attach the display (power off first), enable the overlay, reboot; SSH comes back on
+the same Wi-Fi:
+
+```bash
+sudo ./scripts/setup-display.sh && sudo reboot
+```
+
+```bash
+crwb check-display --test
+```
+
+```bash
+sudo crwb calibrate-touch
+```
+
+```bash
+sudo systemctl start crwb && crwb status
+```
+
+Tap Start Test or run `crwb start`. Cycles now run against your current Wi-Fi; the
+speed test will saturate the same link your SSH session uses but will not drop it.
+
+When ready to test the cellular router, run the Wi-Fi setup inside tmux. The script
+writes the WPA3 profile, points the config at it, then connects, which drops your
+SSH session; tmux lets the script finish anyway:
+
+```bash
+sudo apt install -y tmux && tmux
+```
+
+```bash
+sudo ./scripts/setup-wifi.sh && sudo systemctl restart crwb
+```
+
+From then on the Pi is on Kangaroo Labs. Reach it by SSH from a laptop joined to
+Kangaroo Labs (its IP is on the main screen), or use the touchscreen. When the
+router is off, NetworkManager falls back to your home Wi-Fi profile and SSH over
+that works again. To switch the test back to the home network at any time:
+
+```bash
+sudo nmcli connection up "<home profile name>" && sudo crwb wifi --current && sudo systemctl restart crwb
 ```
 
 If the display shows nothing or the touch axes are wrong, see `docs/DISPLAY.md`.
@@ -106,6 +163,7 @@ If Wi-Fi does not connect, see `docs/NETWORK.md`.
 | Recent results | `crwb results -n 20` |
 | Recent events | `crwb events -n 50` |
 | Change the configuration label | `crwb label "Config B"` (applies at the next cycle) |
+| Show or change the SSID / profile under test | `crwb wifi`, `sudo crwb wifi --current`, `sudo crwb wifi --ssid "Kangaroo Labs"` |
 | Change the interval | `crwb interval 300 && sudo systemctl restart crwb` |
 | Pin or unpin a speed-test server | `speedtest -L`, then `crwb server 18531` or `crwb server auto` |
 | Screen sleep timeout | `crwb sleep 120`, `crwb sleep off`, then restart |
