@@ -1,6 +1,6 @@
 {
-  "versionCode": 12,
-  "versionName": "2.1",
+  "versionCode": 13,
+  "versionName": "2.2",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "VPN detection with guidance (the cause of gateway offline on the phone), snapshots persist across restarts, full digits on the boot screen"
+  "notes": "Updates via browser download (no install permission; no Play Protect warning), stable release signature, Gateway raw JSON dump, old snapshots imported from CSV. This version needs a one-time uninstall of the old app."
 }
