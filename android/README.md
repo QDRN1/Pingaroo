@@ -41,6 +41,10 @@ two sources:
 - Menu (☰): Snapshots, Share CSV, Settings, New session, Check for updates, About.
 - Settings: gateway URL, poll interval (1/2/5 s), audio tone that follows signal
   quality (for walking without looking), keep screen on, auto update check.
+- **Force 2.4 GHz radio** (menu): asks Android to connect to the gateway's 2.4 GHz
+  access point by BSSID and binds the gateway reads to it, for gateways that only
+  answer admin requests on 2.4 GHz. Needs the Wi-Fi password in Settings (stored on
+  the phone only); Android shows a consent sheet; Release puts things back.
 - Error states explain themselves: permission missing or location off get a tap-to-fix.
 - Version and build number in the footer and on the boot screen; label, source and
   settings persist across launches.

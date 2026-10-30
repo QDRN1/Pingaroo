@@ -27,6 +27,18 @@ class Prefs(ctx: Context) {
     var autoUpdate: Boolean
         get() = p.getBoolean("auto_update", true)
         set(v) = p.edit().putBoolean("auto_update", v).apply()
+    var wifiSsid: String
+        get() = p.getString("wifi_ssid", "Kangaroo Labs") ?: "Kangaroo Labs"
+        set(v) = p.edit().putString("wifi_ssid", v.trim()).apply()
+    var wifiPassword: String
+        get() = p.getString("wifi_pw", "") ?: ""
+        set(v) = p.edit().putString("wifi_pw", v).apply()
+    var bssid24: String
+        get() = p.getString("bssid24", "dc:08:da:6d:43:18") ?: "dc:08:da:6d:43:18"
+        set(v) = p.edit().putString("bssid24", v.trim().lowercase()).apply()
+    var wpa3: Boolean
+        get() = p.getBoolean("wpa3", false)
+        set(v) = p.edit().putBoolean("wpa3", v).apply()
     var logging: Boolean
         get() = p.getBoolean("logging", false)
         set(v) = p.edit().putBoolean("logging", v).apply()

@@ -22,7 +22,7 @@ object GatewayProbe {
             val info = wm.connectionInfo
             val freq = info.frequency
             val band = when { freq in 2400..2500 -> "2.4 GHz"; freq in 5000..5900 -> "5 GHz"; freq > 5900 -> "6 GHz"; else -> "?" }
-            sb.append("Band: $band ($freq MHz)  link ${info.linkSpeed} Mbps  RSSI ${info.rssi} dBm\n")
+            sb.append("Band: $band ($freq MHz)  BSSID ${info.bssid}  link ${info.linkSpeed} Mbps  RSSI ${info.rssi} dBm\n")
             val d = wm.dhcpInfo
             fun ip(v: Int) = "${v and 0xff}.${v shr 8 and 0xff}.${v shr 16 and 0xff}.${v shr 24 and 0xff}"
             sb.append("DHCP: ip ${ip(d.ipAddress)}  gateway ${ip(d.gateway)}  dns ${ip(d.dns1)}\n")

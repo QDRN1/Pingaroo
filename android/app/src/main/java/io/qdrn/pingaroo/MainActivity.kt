@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var phone: PhoneRadio
     private lateinit var location: LocationHelper
     private lateinit var wifi: WifiWatcher
+    private lateinit var forced: ForcedWifi
     private lateinit var logger: CsvLogger
     private lateinit var updater: Updater
     private var tone: ToneGenerator? = null
@@ -131,9 +132,10 @@ class MainActivity : AppCompatActivity() {
         phone = PhoneRadio(this)
         location = LocationHelper(this)
         wifi = WifiWatcher(this)
+        forced = ForcedWifi(this)
         logger = CsvLogger(this)
         updater = Updater(this)
-        gateway = GatewayClient(prefs.gatewayUrl) { wifi.network }
+        gateway = GatewayClient(prefs.gatewayUrl) { forced.network ?: wifi.network }
 
         footer.text = "Pingaroo Mobile v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})  ·  Designed by Collin"
         footer.setOnClickListener { showAbout() }
@@ -238,6 +240,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        forced.release()
         tone?.release(); tone = null
     }
 
@@ -260,7 +263,7 @@ class MainActivity : AppCompatActivity() {
             val l = last
             val gw = prefs.gatewayUrl.removePrefix("http://")
             val retry = if (gatewayMisses in 1..2) " · retrying ($gatewayMisses)" else ""
-            val bothNote = if (source == "both") " · +phone" else ""
+            val bothNote = (if (source == "both") " · +phone" else "") + when (forced.state) { "connected" -> " · forced 2.4 GHz"; "requesting" -> " · requesting 2.4 GHz…"; else -> "" }
             when {
                 !wifi.onWifi -> "Phone is not on Wi-Fi: join the gateway's network"
                 l != null && l.error.isEmpty() -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw · ${l.fetchMs ?: "-"} ms$retry$bothNote" + if (!wifi.validated) " · no internet flag" else ""
@@ -533,6 +536,7 @@ class MainActivity : AppCompatActivity() {
         m.menu.add(0, 6, 5, "About")
         m.menu.add(0, 7, 6, "Radio debug dump")
         m.menu.add(0, 8, 7, "Gateway probe")
+        m.menu.add(0, 9, 8, if (forced.state == "off") "Force 2.4 GHz radio" else "Release 2.4 GHz radio (${forced.state})")
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 1 -> startActivity(Intent(this, SnapshotsActivity::class.java))
@@ -544,6 +548,7 @@ class MainActivity : AppCompatActivity() {
                 6 -> showAbout()
                 7 -> showRadioDebug()
                 8 -> showGatewayProbe()
+                9 -> toggleForced()
             }
             true
         }
@@ -554,6 +559,30 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this).setTitle("New session?")
             .setMessage("Clears the session stats, best spot and the snapshot list, and starts a new CSV file. Existing CSV files stay on the phone.")
             .setPositiveButton("Clear") { _, _ -> stats.reset(); SnapshotStore.clear(); spark.clear(); logger.newFile(); updateSpots(); renderStats() }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun toggleForced() {
+        if (forced.state != "off") {
+            forced.release(); gatewayMisses = 0; tick(); restartLoop()
+            Toast.makeText(this, "Released; Android picks the radio again", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (prefs.wifiPassword.isEmpty()) {
+            Toast.makeText(this, "Set the Wi-Fi password in Settings first", Toast.LENGTH_LONG).show(); showSettings(); return
+        }
+        AlertDialog.Builder(this).setTitle("Force the 2.4 GHz radio?")
+            .setMessage("Android will ask you to approve connecting to ${prefs.wifiSsid} on BSSID ${prefs.bssid24}. While held, other apps use mobile data. Release from the menu when done.")
+            .setPositiveButton("Connect") { _, _ ->
+                forced.request(prefs.wifiSsid, prefs.bssid24, prefs.wifiPassword, prefs.wpa3) {
+                    runOnUiThread {
+                        gatewayMisses = 0; tick(); restartLoop()
+                        if (forced.state == "failed") Toast.makeText(this, "2.4 GHz: ${forced.detail}", Toast.LENGTH_LONG).show()
+                        else if (forced.state == "connected") Toast.makeText(this, "On the 2.4 GHz radio", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                tick()
+            }
             .setNegativeButton("Cancel", null).show()
     }
 
@@ -602,6 +631,10 @@ class MainActivity : AppCompatActivity() {
         val toneSw = Switch(this).apply { text = "Audio tone follows signal quality"; isChecked = prefs.tone }
         val keepSw = Switch(this).apply { text = "Keep screen on"; isChecked = prefs.keepScreenOn }
         val autoSw = Switch(this).apply { text = "Check for updates on launch"; isChecked = prefs.autoUpdate }
+        val ssid = EditText(this).apply { hint = "Gateway Wi-Fi name"; setText(prefs.wifiSsid) }
+        val pw = EditText(this).apply { hint = "Gateway Wi-Fi password (stored on this phone only)"; setText(prefs.wifiPassword); inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
+        val bssid = EditText(this).apply { hint = "2.4 GHz radio BSSID"; setText(prefs.bssid24) }
+        val wpa3Sw = Switch(this).apply { text = "Network is WPA3-only (SAE)"; isChecked = prefs.wpa3 }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(pad(TextView(this@MainActivity).apply { text = "Gateway"; setTextColor(Thresholds.AMBER) }))
@@ -609,12 +642,15 @@ class MainActivity : AppCompatActivity() {
             addView(pad(TextView(this@MainActivity).apply { text = "Poll interval"; setTextColor(Thresholds.AMBER) }))
             addView(pad(poll))
             addView(pad(toneSw)); addView(pad(keepSw)); addView(pad(autoSw))
+            addView(pad(TextView(this@MainActivity).apply { text = "Force 2.4 GHz radio (menu)"; setTextColor(Thresholds.AMBER) }))
+            addView(pad(ssid)); addView(pad(pw)); addView(pad(bssid)); addView(pad(wpa3Sw))
         }
         AlertDialog.Builder(this).setTitle("Settings").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Save") { _, _ ->
-                prefs.gatewayUrl = url.text.toString(); gateway = GatewayClient(prefs.gatewayUrl) { wifi.network }
+                prefs.gatewayUrl = url.text.toString(); gateway = GatewayClient(prefs.gatewayUrl) { forced.network ?: wifi.network }
                 for (i in 0 until poll.childCount) { val rb = poll.getChildAt(i) as RadioButton; if (rb.isChecked) prefs.pollMs = rb.tag as Long }
                 prefs.tone = toneSw.isChecked; prefs.keepScreenOn = keepSw.isChecked; prefs.autoUpdate = autoSw.isChecked
+                prefs.wifiSsid = ssid.text.toString(); prefs.wifiPassword = pw.text.toString(); prefs.bssid24 = bssid.text.toString(); prefs.wpa3 = wpa3Sw.isChecked
                 applyKeepScreenOn(); tick(); restartLoop()
             }
             .setNegativeButton("Cancel", null).show()
