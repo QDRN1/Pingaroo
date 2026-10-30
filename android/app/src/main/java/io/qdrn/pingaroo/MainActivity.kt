@@ -705,12 +705,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun installUpdate(info: Updater.Info) {
+        if (!packageManager.canRequestPackageInstalls()) {
+            AlertDialog.Builder(this).setTitle("Allow installs first")
+                .setMessage("Android needs permission for Pingaroo Mobile to install updates. On the next screen turn on \"Allow from this source\", then come back and tap the update banner again.")
+                .setPositiveButton("Open setting") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                }
+                .setNegativeButton("Cancel", null).show()
+            return
+        }
         AlertDialog.Builder(this)
-            .setTitle("Update to v${info.versionName}")
-            .setMessage((info.notes.ifEmpty { "A newer build is on GitHub." }) +
-                "\n\nThe APK opens in your browser. When the download finishes, tap it in the notification to install. " +
-                "Pingaroo Mobile never installs packages itself, so Play Protect has nothing to object to.")
-            .setPositiveButton("Open download") { _, _ -> startActivity(updater.browserIntent(info)) }
+            .setTitle("Install v${info.versionName}?")
+            .setMessage((info.notes.ifEmpty { "A newer build is on GitHub." }) + "\n\nAndroid will ask you to confirm the install.")
+            .setPositiveButton("Download") { _, _ ->
+                val progress = AlertDialog.Builder(this).setTitle("Downloading v${info.versionName}").setMessage("Starting…").setCancelable(false).show()
+                lifecycleScope.launch {
+                    try {
+                        val apk = updater.download(info) { pct -> progress.setMessage(if (pct >= 0) "$pct%" else "downloading…") }
+                        progress.dismiss()
+                        startActivity(updater.installIntent(apk))
+                    } catch (e: Exception) {
+                        progress.dismiss()
+                        AlertDialog.Builder(this@MainActivity).setTitle("Update failed").setMessage("${e.javaClass.simpleName}: ${e.message}")
+                            .setPositiveButton("OK", null).show()
+                    }
+                }
+            }
             .setNegativeButton("Later", null)
             .show()
     }

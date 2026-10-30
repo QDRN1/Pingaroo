@@ -56,9 +56,9 @@ Tested target: Samsung Galaxy Z Fold, Android 14 or newer. Minimum Android 10.
 ## Updates and Signing
 
 The app checks GitHub for a newer `android/releases/version.json` and offers it in a
-banner. Tapping it opens the APK in the browser; the browser downloads it and you tap
-the download to install. The app never installs packages itself (no install
-permission), which keeps Google Play Protect quiet.
+banner. Tapping it downloads the APK in the app and hands it to Android's installer
+(first time: allow installs from this source). Play Protect may warn about a
+sideloaded updater; "Install anyway" is the accepted answer for this personal tool.
 
 Signing: if `android/keystore.properties` (git-ignored) points at a keystore, release
 and debug builds are signed with it so builds from any machine install over each
