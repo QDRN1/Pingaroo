@@ -14,9 +14,11 @@ object SnapshotStore {
         if (file != null) return
         val dir = ctx.getExternalFilesDir(null) ?: ctx.filesDir
         file = File(dir, "snapshots.json")
+        var hadStore = false
         try {
             val f = file!!
             if (f.exists()) {
+                hadStore = true
                 val arr = JSONArray(f.readText())
                 items.clear()
                 for (i in 0 until arr.length()) fromJson(arr.getJSONObject(i))?.let { items.add(it) }
@@ -26,6 +28,12 @@ object SnapshotStore {
         // Done once: a marker file records it, so snapshots the user removes do not come back.
         val marker = File(dir, "snapshots.imported")
         if (marker.exists()) return
+        if (hadStore) {
+            // The store was created by a version that imported the CSV rows on every launch, so
+            // they are already in it; anything missing now was removed on purpose.
+            try { marker.writeText("store existed\n") } catch (_: Exception) { }
+            return
+        }
         try {
             val known = items.map { it.time + it.label }.toHashSet()
             var added = 0

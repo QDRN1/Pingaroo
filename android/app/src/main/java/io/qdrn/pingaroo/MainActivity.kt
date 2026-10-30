@@ -213,7 +213,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     if (!isActive || src != source) break      // switched while fetching: a new loop owns the screen
                     if (paused) { delay(prefs.pollMs); continue }  // Pause pressed while fetching: drop this poll
-                    val loc = location.last
+                    val loc = location.fresh
                     val sample = raw.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
                     val ps = phoneSample?.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
                     if (sample.source == "gateway" && sample.error.isNotEmpty()) {
@@ -462,13 +462,26 @@ class MainActivity : AppCompatActivity() {
         val pCell = if (nrBoth) p.cellId else if (lteBoth) p.lteCellId else null
         val gCell = if (nrBoth) g?.cellId else if (lteBoth) g?.lteCellId else null
         val rat = if (nrBoth) "NR" else "LTE"
-        val same = pPci != null && gPci != null && pPci == gPci && (pCell == null || gCell == null || pCell == gCell)
-        tile("d_cell").set("SAME CELL", when {
-            pPci == null || gPci == null -> "-"
-            same -> "YES  $rat PCI $pPci"
-            else -> "NO  $rat $pPci vs $gPci"
-        }, if (pPci == null || gPci == null) "no common radio to compare" else "",
-            if (pPci == null || gPci == null) Thresholds.MUTED else if (same) Thresholds.GREEN else Thresholds.AMBER, big = false)
+        val pArfcn = if (nrBoth) p.arfcn else if (lteBoth) p.lteEarfcn else null
+        val gArfcn = if (nrBoth) g?.arfcn else if (lteBoth) g?.lteEarfcn else null
+        fun bandNum(b: String?) = b?.trim()?.trimStart('n', 'N', 'b', 'B')?.substringBefore('/')?.takeIf { it.isNotEmpty() }
+        val pBand = bandNum(if (nrBoth) p.band else p.lteBand); val gBand = bandNum(if (nrBoth) g?.band else g?.lteBand)
+        val pciSame = pPci != null && gPci != null && pPci == gPci
+        val cellKnown = pCell != null && gCell != null
+        val arfcnKnown = pArfcn != null && gArfcn != null
+        val bandKnown = pBand != null && gBand != null
+        val conflict = (cellKnown && pCell != gCell) || (arfcnKnown && pArfcn != gArfcn) || (bandKnown && pBand != gBand)
+        // YES needs the PCI plus at least one more identifier (cell ID or channel) to agree;
+        // a PCI match alone is only a hint, since PCIs repeat across a network.
+        val confirmed = pciSame && !conflict && ((cellKnown && pCell == gCell) || (arfcnKnown && pArfcn == gArfcn))
+        val (txt, sub, col) = when {
+            pPci == null || gPci == null -> Triple("-", "no common radio to compare", Thresholds.MUTED)
+            confirmed -> Triple("YES  $rat PCI $pPci", if (cellKnown) "cell ID matches" else "channel matches", Thresholds.GREEN)
+            pciSame && !conflict -> Triple("PCI MATCH  $rat $pPci", "cell ID unknown, not confirmed", Thresholds.AMBER)
+            pciSame -> Triple("NO  $rat PCI $pPci", if (cellKnown) "different cell ID" else if (arfcnKnown) "different channel" else "different band", Thresholds.AMBER)
+            else -> Triple("NO  $rat $pPci vs $gPci", "", Thresholds.AMBER)
+        }
+        tile("d_cell").set("SAME CELL", txt, sub, col, big = false)
         tile("p_tech").set("PHONE", "${p.tech.ifEmpty { "-" }}  ${p.band.ifEmpty { p.lteBand }}", "", Thresholds.CYAN, big = false)
     }
 

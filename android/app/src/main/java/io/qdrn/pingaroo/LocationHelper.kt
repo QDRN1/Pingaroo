@@ -13,13 +13,18 @@ class LocationHelper(private val ctx: Context) : LocationListener {
     private val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     @Volatile var last: Location? = null
         private set
+    /** The last fix if it is under two minutes old, else null. Samples use this. */
+    val fresh: Location? get() = last?.takeIf { System.currentTimeMillis() - it.time <= MAX_AGE_MS }
+
+    companion object { const val MAX_AGE_MS = 120_000L }
 
     fun start() {
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         try {
-            // A cached fix can be hours old; only seed from it when it is recent.
+            // A cached fix can be hours old, and so can the one kept from before stop(): keep the
+            // newest of the two only when it is recent.
             val cached = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            if (cached != null && System.currentTimeMillis() - cached.time <= 120_000) last = cached
+            last = listOfNotNull(last, cached).filter { System.currentTimeMillis() - it.time <= MAX_AGE_MS }.maxByOrNull { it.time }
             if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER))
                 lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this)
             if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER))

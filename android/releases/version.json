@@ -1,6 +1,6 @@
 {
-  "versionCode": 19,
-  "versionName": "2.8",
+  "versionCode": 20,
+  "versionName": "2.9",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Punch list: snapshots stay deleted, accurate session stats and trend arrows, session timer resets, SAME CELL compares like radios, Both-mode logging and tiles, BSSID crash, login error title with details, wrapped banner text, pause, GPS age, probe ports"
+  "notes": "Follow-up: all-zero BSSID handled, stale GPS never attached, deleted spots do not return on first launch, SAME CELL needs cell ID or channel to say YES, full error text in details, banner title fits"
 }

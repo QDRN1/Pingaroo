@@ -24,13 +24,19 @@ class ForcedWifi(ctx: Context) {
 
     fun request(ssid: String, bssid: String, passphrase: String, wpa3: Boolean, onChange: () -> Unit) {
         release()
-        val mac = if (bssid.isBlank()) null else try { MacAddress.fromString(bssid.trim()) } catch (e: IllegalArgumentException) {
-            state = "failed"; detail = "invalid BSSID '$bssid' in Settings (expected aa:bb:cc:dd:ee:ff)"; onChange(); return
+        val mac = if (bssid.isBlank()) null else try {
+            MacAddress.fromString(bssid.trim()).also {
+                if (it == MacAddress.BROADCAST_ADDRESS || it.toByteArray().all { b -> b == 0.toByte() }) throw IllegalArgumentException("all zeros or broadcast")
+            }
+        } catch (e: IllegalArgumentException) {
+            state = "failed"; detail = "invalid BSSID '$bssid' in Settings (expected a real aa:bb:cc:dd:ee:ff)"; onChange(); return
         }
-        val spec = WifiNetworkSpecifier.Builder().setSsid(ssid).apply {
-            if (mac != null) setBssid(mac)
-            if (passphrase.isNotEmpty()) { if (wpa3) setWpa3Passphrase(passphrase) else setWpa2Passphrase(passphrase) }
-        }.build()
+        val spec = try {
+            WifiNetworkSpecifier.Builder().setSsid(ssid).apply {
+                if (mac != null) setBssid(mac)
+                if (passphrase.isNotEmpty()) { if (wpa3) setWpa3Passphrase(passphrase) else setWpa2Passphrase(passphrase) }
+            }.build()
+        } catch (e: Exception) { state = "failed"; detail = "Android rejected the Wi-Fi request: ${e.message}"; onChange(); return }
         val req = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)

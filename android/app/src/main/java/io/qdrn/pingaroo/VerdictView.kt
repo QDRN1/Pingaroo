@@ -41,6 +41,8 @@ class VerdictView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? =
         }
         // verdict text
         p.color = color; p.isFakeBoldText = true; p.textSize = 30 * d
+        val titleMaxW = w - 96 * d - 12 * d
+        while (p.textSize > 16 * d && p.measureText(verdict) > titleMaxW) p.textSize -= 1 * d
         val s = if (pulse > 0) 1f + pulse * 0.04f else 1f
         c.save(); c.scale(s, s, 100 * d, h / 2)
         c.drawText(verdict, 96 * d, h / 2 - 2 * d, p)

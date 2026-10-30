@@ -171,7 +171,7 @@ class GatewayClient(
                 fetchMs = System.currentTimeMillis() - t0,
             )
         } catch (e: Exception) {
-            Sample(source = "gateway", label = label, error = (e.message ?: e.javaClass.simpleName).take(80))
+            Sample(source = "gateway", label = label, error = (e.message ?: e.javaClass.simpleName).take(400))
         }
     }
 }
