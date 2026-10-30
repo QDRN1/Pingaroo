@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "1.8",
+  "versionCode": 10,
+  "versionName": "1.9",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Install-permission prompt before updates, progress and error dialogs, Gateway probe, stale tiles cleared on gateway errors, QDRN and token removed"
+  "notes": "Force 2.4 GHz radio (menu): connects to the gateway's 2.4 GHz BSSID and binds gateway reads to it; Wi-Fi credentials in Settings; BSSID in probe"
 }
