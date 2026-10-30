@@ -1,6 +1,6 @@
 {
-  "versionCode": 13,
-  "versionName": "2.2",
+  "versionCode": 14,
+  "versionName": "2.3",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Updates open in the browser (no install permission, no Play Protect block); Gateway raw JSON dump; earlier snapshots imported from CSV"
+  "notes": "Gateway login with the admin password from Settings (the gateway requires a session per client)"
 }
