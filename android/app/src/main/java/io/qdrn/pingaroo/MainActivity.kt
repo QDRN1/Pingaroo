@@ -589,7 +589,7 @@ class MainActivity : AppCompatActivity() {
     private fun showGatewayProbe() {
         val waiting = AlertDialog.Builder(this).setTitle("Gateway probe").setMessage("Testing ${prefs.gatewayUrl} over Wi-Fi…").setCancelable(false).show()
         lifecycleScope.launch {
-            val text = try { GatewayProbe.run(this@MainActivity, prefs.gatewayUrl, wifi.network, wifi.ssid) } catch (e: Exception) { "probe failed: $e" }
+            val text = try { GatewayProbe.run(this@MainActivity, prefs.gatewayUrl, forced.network ?: wifi.network, wifi.ssid) + (if (forced.state == "connected") "\n(forced 2.4 GHz network was used for the bound tests)" else "") } catch (e: Exception) { "probe failed: $e" }
             waiting.dismiss()
             AlertDialog.Builder(this@MainActivity).setTitle("Gateway probe").setMessage(text)
                 .setPositiveButton("Share") { _, _ ->

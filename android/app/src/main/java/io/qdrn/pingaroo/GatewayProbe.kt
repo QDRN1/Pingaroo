@@ -1,6 +1,7 @@
 package io.qdrn.pingaroo
 
 import android.content.Context
+import android.net.ConnectivityManager
 import android.net.Network
 import android.net.wifi.WifiManager
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +18,16 @@ object GatewayProbe {
         val sb = StringBuilder()
         val host = baseUrl.removePrefix("http://").removePrefix("https://").trimEnd('/')
         sb.append("SSID: ${ssid.ifEmpty { "?" }}   bound network: ${if (wifiNet != null) "Wi-Fi" else "NONE (default)"}\n")
+        if (wifiNet != null) {
+            try {
+                val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                val lp = cm.getLinkProperties(wifiNet)
+                val caps = cm.getNetworkCapabilities(wifiNet)
+                sb.append("Bound net addresses: ${lp?.linkAddresses?.joinToString() ?: "none"}\n")
+                sb.append("Bound net routes: ${lp?.routes?.filter { it.isDefaultRoute }?.joinToString { it.gateway?.hostAddress ?: "?" } ?: "none"}  dns: ${lp?.dnsServers?.joinToString { it.hostAddress ?: "?" }}\n")
+                sb.append("Bound net validated: ${caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)}\n")
+            } catch (e: Exception) { sb.append("link properties: ${e.message}\n") }
+        }
         try {
             val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             val info = wm.connectionInfo
