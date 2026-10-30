@@ -17,7 +17,9 @@ class LocationHelper(private val ctx: Context) : LocationListener {
     fun start() {
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         try {
-            last = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            // A cached fix can be hours old; only seed from it when it is recent.
+            val cached = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            if (cached != null && System.currentTimeMillis() - cached.time <= 120_000) last = cached
             if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER))
                 lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this)
             if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER))

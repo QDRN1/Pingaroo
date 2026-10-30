@@ -167,7 +167,7 @@ class MainActivity : AppCompatActivity() {
 
         buildTiles()
         updateSpots()
-        permissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.READ_PHONE_STATE))
+        permissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.READ_PHONE_STATE))
         if (prefs.autoUpdate) checkForUpdate(manual = false)
 
         // sampling loop: lifecycle-bound scope, restartable job (source switch cancels in-flight work)
@@ -212,13 +212,17 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     if (!isActive || src != source) break      // switched while fetching: a new loop owns the screen
+                    if (paused) { delay(prefs.pollMs); continue }  // Pause pressed while fetching: drop this poll
                     val loc = location.last
                     val sample = raw.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
                     val ps = phoneSample?.copy(lat = loc?.latitude, lon = loc?.longitude, accuracyM = loc?.accuracy)
                     if (sample.source == "gateway" && sample.error.isNotEmpty()) {
                         gatewayMisses++
                         if (gatewayMisses < 3 && last != null && last!!.error.isEmpty()) {
-                            if (ps != null) { lastPhone = ps; renderPhoneBlock(ps) }
+                            if (ps != null) {
+                                lastPhone = ps; renderPhoneBlock(ps)
+                                if (prefs.logging && ps.error.isEmpty()) { logger.append(ps); updateSpots() }
+                            }
                             tick(); delay(prefs.pollMs); continue
                         }
                     } else gatewayMisses = 0
@@ -240,7 +244,7 @@ class MainActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         buildTiles()
-        last?.let { render(it) }
+        last?.let { render(it, record = false) }
     }
 
     override fun onDestroy() {
@@ -353,7 +357,9 @@ class MainActivity : AppCompatActivity() {
         sectionLte.visibility = View.GONE; tilesLte.visibility = View.GONE
     }
 
-    private fun render(s: Sample) {
+    /** Draws a sample.  [record] adds it to the session stats and sparkline; pass false when
+     *  re-drawing a sample that is already counted (rotation, snapshot label change). */
+    private fun render(s: Sample, record: Boolean = true) {
         if (s.error.isNotEmpty()) {
             val (title, hint) = errorPresentation(s)
             verdict.set(title, Thresholds.RED, 0, hint)
@@ -366,8 +372,10 @@ class MainActivity : AppCompatActivity() {
         val sinr = if (useLte) s.lteRssnr else s.sinr
         val rsrq = if (useLte) s.lteRsrq else s.rsrq
         val tag = if (useLte) " (LTE)" else if (s.source == "phone" && s.rsrp != null) " (NR)" else ""
-        val prevR = stats.prevRsrp; val prevS = stats.prevSinr
-        stats.add(rsrp, sinr, label)
+        // Trend arrows compare against the sample immediately before this one.
+        val prevR: Int?; val prevS: Int?
+        if (record) { prevR = stats.lastRsrp; prevS = stats.lastSinr; stats.add(rsrp, sinr, label) }
+        else { prevR = stats.prevRsrp; prevS = stats.prevSinr }
         val (v, col) = Thresholds.verdict(rsrp, sinr)
         val bars = when (v) { "EXCELLENT" -> 5; "GOOD" -> 4; "FAIR" -> 3; "POOR" -> 2; "INTERFERENCE" -> 1; else -> 0 }
         val where = if (label.isNotEmpty()) "at $label" else "no location label"
@@ -414,7 +422,7 @@ class MainActivity : AppCompatActivity() {
             tile("lsnr").set("LTE SNR", s.lteRssnr?.toString() ?: "-", "dB", Thresholds.sinr(s.lteRssnr), big = false)
             tile("learfcn").set("EARFCN", s.lteEarfcn?.toString() ?: "-", "", Thresholds.MUTED, big = false)
         }
-        spark.push(rsrp, sinr)
+        if (record) spark.push(rsrp, sinr)
         val gps = if (s.lat != null) "GPS %.5f, %.5f (±%.0f m)".format(s.lat, s.lon, s.accuracyM ?: 0f) else "GPS: no fix yet"
         status.text = "$gps   ·   sample ${s.time.substring(11, 19)}"
     }
@@ -424,6 +432,9 @@ class MainActivity : AppCompatActivity() {
         if (p.error.isNotEmpty()) {
             for (k in listOf("p_rsrp", "p_sinr", "p_rsrq", "p_rssi")) tile(k).set(k.removePrefix("p_").uppercase(), "-", "", Thresholds.MUTED)
             tile("p_tech").set("PHONE", "no data", "", Thresholds.RED, big = false)
+            tile("d_rsrp").set("Δ RSRP (phone − gateway)", "-", "", Thresholds.MUTED, big = false)
+            tile("d_sinr").set("Δ SINR (phone − gateway)", "-", "", Thresholds.MUTED, big = false)
+            tile("d_cell").set("SAME CELL", "-", "", Thresholds.MUTED, big = false)
             return
         }
         val useLte = p.rsrp == null && p.lteRsrp != null
@@ -442,9 +453,21 @@ class MainActivity : AppCompatActivity() {
         fun signed(v: Int?) = when { v == null -> "-"; v > 0 -> "+$v"; else -> "$v" }
         tile("d_rsrp").set("Δ RSRP (phone − gateway)", signed(dR), "dB", when { dR == null -> Thresholds.MUTED; dR >= 3 -> Thresholds.GREEN; dR <= -3 -> Thresholds.RED; else -> Thresholds.TEXT }, big = false)
         tile("d_sinr").set("Δ SINR (phone − gateway)", signed(dS), "dB", when { dS == null -> Thresholds.MUTED; dS >= 3 -> Thresholds.GREEN; dS <= -3 -> Thresholds.RED; else -> Thresholds.TEXT }, big = false)
-        val pPci = p.pci ?: p.ltePci; val gPci = g?.pci ?: g?.ltePci
-        val same = pPci != null && gPci != null && pPci == gPci
-        tile("d_cell").set("SAME CELL", if (pPci == null || gPci == null) "-" else if (same) "YES  PCI $pPci" else "NO  $pPci vs $gPci", "",
+        // Compare the same radio on both sides: NR PCI vs NR PCI, else LTE PCI vs LTE PCI.  The
+        // phone in NSA exposes only its LTE anchor, so comparing it to the gateway's NR PCI is meaningless.
+        val nrBoth = p.pci != null && g?.pci != null
+        val lteBoth = p.ltePci != null && g?.ltePci != null
+        val pPci = if (nrBoth) p.pci else if (lteBoth) p.ltePci else null
+        val gPci = if (nrBoth) g?.pci else if (lteBoth) g?.ltePci else null
+        val pCell = if (nrBoth) p.cellId else if (lteBoth) p.lteCellId else null
+        val gCell = if (nrBoth) g?.cellId else if (lteBoth) g?.lteCellId else null
+        val rat = if (nrBoth) "NR" else "LTE"
+        val same = pPci != null && gPci != null && pPci == gPci && (pCell == null || gCell == null || pCell == gCell)
+        tile("d_cell").set("SAME CELL", when {
+            pPci == null || gPci == null -> "-"
+            same -> "YES  $rat PCI $pPci"
+            else -> "NO  $rat $pPci vs $gPci"
+        }, if (pPci == null || gPci == null) "no common radio to compare" else "",
             if (pPci == null || gPci == null) Thresholds.MUTED else if (same) Thresholds.GREEN else Thresholds.AMBER, big = false)
         tile("p_tech").set("PHONE", "${p.tech.ifEmpty { "-" }}  ${p.band.ifEmpty { p.lteBand }}", "", Thresholds.CYAN, big = false)
     }
@@ -468,8 +491,9 @@ class MainActivity : AppCompatActivity() {
             if (!onGatewayWifi()) return "WRONG WI-FI" to "Phone is on '${wifi.ssid}'. Join ${prefs.wifiSsid} to read the gateway."
             if (wifi.vpnActive() || s.error.contains("EPERM"))
                 return "VPN IN THE WAY" to "A VPN on this phone captures traffic to ${prefs.gatewayUrl.removePrefix("http://")} (and blocks binding to Wi-Fi). Disconnect the VPN, or exclude 192.168.1.0/24 from it."
-            return "GATEWAY OFFLINE" to if (!wifi.onWifi) "Phone is not on Wi-Fi. Join Kangaroo Labs." else
-                "No answer from ${prefs.gatewayUrl.removePrefix("http://")} on Wi-Fi '${wifi.ssid.ifEmpty { "?" }}'. ${s.error}"
+            if (s.error.contains("login", ignoreCase = true) || s.error.contains("admin password", ignoreCase = true))
+                return "GATEWAY LOGIN FAILED" to "${s.error}. Check the admin password in Settings. Tap for details."
+            return "GATEWAY OFFLINE" to "No answer from ${prefs.gatewayUrl.removePrefix("http://")} on Wi-Fi '${wifi.ssid.ifEmpty { "?" }}'. ${s.error}. Tap for details."
         }
         val locOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -481,7 +505,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openFixFor(s: Sample) {
-        if (s.source == "gateway") return
+        if (s.source == "gateway") {
+            val (title, hint) = errorPresentation(s)
+            AlertDialog.Builder(this).setTitle(title).setMessage(hint.removeSuffix(" Tap for details.") + "\n\nGateway: ${prefs.gatewayUrl}\nWi-Fi: ${wifi.ssid.ifEmpty { "-" }}\nError: ${s.error}")
+                .setPositiveButton("OK", null).setNeutralButton("Settings") { _, _ -> showSettings() }.show()
+            return
+        }
         val locOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         when {
@@ -527,7 +556,7 @@ class MainActivity : AppCompatActivity() {
                 if (source == "both") lastPhone?.let { ph -> if (ph.error.isEmpty()) { val ps = ph.copy(label = label, event = "snapshot"); logger.append(ps); SnapshotStore.add(ps) } }
                 anchor.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                 updateSpots(); renderStats()
-                last?.let { render(it.copy(label = label)) }
+                last?.let { render(it.copy(label = label), record = false) }
                 Toast.makeText(this, "Saved $label: RSRP ${snap.rsrp ?: snap.lteRsrp ?: "-"}  SINR ${snap.sinr ?: snap.lteRssnr ?: "-"}", Toast.LENGTH_LONG).show()
             }
             .setNegativeButton("Cancel", null)

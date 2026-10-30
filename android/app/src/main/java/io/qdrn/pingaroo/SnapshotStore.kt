@@ -22,7 +22,10 @@ object SnapshotStore {
                 for (i in 0 until arr.length()) fromJson(arr.getJSONObject(i))?.let { items.add(it) }
             }
         } catch (_: Exception) { }
-        // Import snapshot rows from CSV files written by earlier versions (once per row).
+        // Import snapshot rows from CSV files written by versions before the JSON store existed.
+        // Done once: a marker file records it, so snapshots the user removes do not come back.
+        val marker = File(dir, "snapshots.imported")
+        if (marker.exists()) return
         try {
             val known = items.map { it.time + it.label }.toHashSet()
             var added = 0
@@ -49,6 +52,7 @@ object SnapshotStore {
                 }
             }
             if (added > 0) { items.sortByDescending { it.time }; save() }
+            marker.writeText("imported $added\n")
         } catch (_: Exception) { }
     }
 

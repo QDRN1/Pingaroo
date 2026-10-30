@@ -24,8 +24,11 @@ class ForcedWifi(ctx: Context) {
 
     fun request(ssid: String, bssid: String, passphrase: String, wpa3: Boolean, onChange: () -> Unit) {
         release()
+        val mac = if (bssid.isBlank()) null else try { MacAddress.fromString(bssid.trim()) } catch (e: IllegalArgumentException) {
+            state = "failed"; detail = "invalid BSSID '$bssid' in Settings (expected aa:bb:cc:dd:ee:ff)"; onChange(); return
+        }
         val spec = WifiNetworkSpecifier.Builder().setSsid(ssid).apply {
-            if (bssid.isNotBlank()) setBssid(MacAddress.fromString(bssid.trim()))
+            if (mac != null) setBssid(mac)
             if (passphrase.isNotEmpty()) { if (wpa3) setWpa3Passphrase(passphrase) else setWpa2Passphrase(passphrase) }
         }.build()
         val req = NetworkRequest.Builder()

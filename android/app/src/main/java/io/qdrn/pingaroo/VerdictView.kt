@@ -43,10 +43,34 @@ class VerdictView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? =
         p.color = color; p.isFakeBoldText = true; p.textSize = 30 * d
         val s = if (pulse > 0) 1f + pulse * 0.04f else 1f
         c.save(); c.scale(s, s, 100 * d, h / 2)
-        c.drawText(verdict, 96 * d, h / 2 + 6 * d, p)
+        c.drawText(verdict, 96 * d, h / 2 - 2 * d, p)
         c.restore()
-        p.color = Thresholds.MUTED; p.isFakeBoldText = false; p.textSize = 13 * d
-        c.drawText(subtitle, 96 * d, h - 16 * d, p)
+        // subtitle: up to two lines inside the banner, the second ellipsised
+        p.color = Thresholds.MUTED; p.isFakeBoldText = false; p.textSize = 12 * d
+        val x = 96 * d; val maxW = w - x - 12 * d
+        val lines = wrap(subtitle, maxW, 2)
+        for ((i, line) in lines.withIndex()) c.drawText(line, x, h / 2 + 14 * d + i * 15 * d, p)
         if (pulse > 0) { pulse -= 0.08f; postInvalidateOnAnimation() }
+    }
+
+    private fun wrap(text: String, maxW: Float, maxLines: Int): List<String> {
+        if (text.isEmpty() || maxW <= 0) return listOf(text)
+        val out = ArrayList<String>()
+        var rest = text.trim()
+        while (rest.isNotEmpty() && out.size < maxLines) {
+            val lastLine = out.size == maxLines - 1
+            val n = p.breakText(rest, true, maxW, null)
+            if (n >= rest.length) { out.add(rest); rest = ""; break }
+            if (lastLine) {
+                var cut = n
+                while (cut > 0 && p.measureText(rest.substring(0, cut) + "…") > maxW) cut--
+                out.add(rest.substring(0, cut).trimEnd() + "…"); rest = ""; break
+            }
+            val space = rest.lastIndexOf(' ', n)
+            val cut = if (space > 0) space else n
+            out.add(rest.substring(0, cut).trimEnd())
+            rest = rest.substring(cut).trimStart()
+        }
+        return out
     }
 }

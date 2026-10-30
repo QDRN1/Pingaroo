@@ -18,14 +18,17 @@ class SplashActivity : AppCompatActivity() {
                 .setTitle("Pingaroo Mobile crashed last time")
                 .setMessage(text.take(3000))
                 .setPositiveButton("Share") { _, _ ->
-                    val uri = FileProvider.getUriForFile(this, "io.qdrn.pingaroo.mobile.files", crash)
+                    // Rename rather than delete: the share target reads the URI after this returns.
+                    val shared = java.io.File(crash.parentFile, "crash-shared.txt")
+                    if (!crash.renameTo(shared)) shared.writeText(text)
+                    val uri = FileProvider.getUriForFile(this, "io.qdrn.pingaroo.mobile.files", shared)
                     startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_STREAM, uri)
                         putExtra(Intent.EXTRA_TEXT, text)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }, "Share crash report"))
-                    crash.delete()
+                    crash.delete()   // no-op after the rename; covers the copy fallback
                     showSplash()
                 }
                 .setNegativeButton("Dismiss") { _, _ -> crash.delete(); showSplash() }

@@ -22,7 +22,7 @@ class CsvLogger(private val ctx: Context) {
     private fun ensureFile(): File {
         file?.let { return it }
         val dir = ctx.getExternalFilesDir(null) ?: ctx.filesDir
-        val name = "pingaroo-mobile-" + SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) + ".csv"
+        val name = "pingaroo-mobile-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".csv"
         val f = File(dir, name)
         if (!f.exists()) f.writeText(Sample.CSV_COLUMNS.joinToString(",") + "\n")
         file = f

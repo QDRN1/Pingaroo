@@ -14,27 +14,34 @@ class SessionStats {
     val rsrp = Agg()
     val sinr = Agg()
     var samples = 0
-    val startedAt = System.currentTimeMillis()
+    var startedAt = System.currentTimeMillis()
+        private set
     var bestSinr: Int? = null
     var bestLabel = ""
     var bestRsrp: Int? = null
+    /** The most recent sample added. */
+    var lastRsrp: Int? = null
+        private set
+    var lastSinr: Int? = null
+        private set
+    /** The sample before the most recent one. */
     var prevRsrp: Int? = null
+        private set
     var prevSinr: Int? = null
+        private set
 
     fun add(r: Int?, s: Int?, label: String) {
-        prevRsrp = rsrp.lastOrNull; prevSinr = sinr.lastOrNull
+        prevRsrp = lastRsrp; prevSinr = lastSinr
         rsrp.add(r); sinr.add(s); samples++
-        rsrp.lastOrNull = r; sinr.lastOrNull = s
+        lastRsrp = r; lastSinr = s
         if (s != null && (bestSinr == null || s > bestSinr!!)) { bestSinr = s; bestLabel = label; bestRsrp = r }
     }
 
-    fun reset() { rsrp.reset(); sinr.reset(); samples = 0; bestSinr = null; bestLabel = ""; bestRsrp = null; prevRsrp = null; prevSinr = null }
+    fun reset() {
+        rsrp.reset(); sinr.reset(); samples = 0; bestSinr = null; bestLabel = ""; bestRsrp = null
+        lastRsrp = null; lastSinr = null; prevRsrp = null; prevSinr = null
+        startedAt = System.currentTimeMillis()
+    }
 
     val elapsedS: Long get() = (System.currentTimeMillis() - startedAt) / 1000
 }
-
-// small extension holder: last value per aggregate, kept outside Agg for clarity
-private val lastValues = HashMap<SessionStats.Agg, Int?>()
-var SessionStats.Agg.lastOrNull: Int?
-    get() = lastValues[this]
-    set(v) { lastValues[this] = v }

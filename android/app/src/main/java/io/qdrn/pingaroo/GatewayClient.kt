@@ -127,7 +127,7 @@ class GatewayClient(
     }
 
     private fun JSONObject.intOrNull(key: String): Int? =
-        optString(key, "").trim().removeSuffix("dBm").removeSuffix("dB").trim().toIntOrNull()
+        optString(key, "").trim().removeSuffix("dBm").removeSuffix("dB").trim().let { it.toIntOrNull() ?: it.toDoubleOrNull()?.let { d -> Math.round(d).toInt() } }
 
     suspend fun fetch(label: String): Sample = withContext(Dispatchers.IO) {
         val t0 = System.currentTimeMillis()

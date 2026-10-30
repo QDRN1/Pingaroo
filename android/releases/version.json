@@ -1,6 +1,6 @@
 {
-  "versionCode": 18,
-  "versionName": "2.7",
+  "versionCode": 19,
+  "versionName": "2.8",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Save Snapshot saves only the source on the toggle (Gateway or Phone); Both still saves both"
+  "notes": "Punch list: snapshots stay deleted, accurate session stats and trend arrows, session timer resets, SAME CELL compares like radios, Both-mode logging and tiles, BSSID crash, login error title with details, wrapped banner text, pause, GPS age, probe ports"
 }

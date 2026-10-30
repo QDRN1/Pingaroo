@@ -16,7 +16,10 @@ object GatewayProbe {
     @Suppress("DEPRECATION")
     suspend fun run(ctx: Context, baseUrl: String, wifiNet: Network?, ssid: String): String = withContext(Dispatchers.IO) {
         val sb = StringBuilder()
-        val host = baseUrl.removePrefix("http://").removePrefix("https://").trimEnd('/')
+        val base = try { URL(if (baseUrl.contains("://")) baseUrl.trimEnd('/') else "http://" + baseUrl.trimEnd('/')) } catch (_: Exception) { URL("http://192.168.1.1") }
+        val host = base.host
+        val port = if (base.port == -1) base.defaultPort else base.port
+        val scheme = base.protocol
         sb.append("SSID: ${ssid.ifEmpty { "?" }}   bound network: ${if (wifiNet != null) "Wi-Fi" else "NONE (default)"}\n")
         try {
             val cm0 = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -49,16 +52,16 @@ object GatewayProbe {
         val t0 = System.currentTimeMillis()
         try {
             val s = wifiNet?.socketFactory?.createSocket() ?: Socket()
-            s.connect(InetSocketAddress(host, 80), 3000); s.close()
-            sb.append("TCP $host:80  OK (${System.currentTimeMillis() - t0} ms)\n")
-        } catch (e: Exception) { sb.append("TCP $host:80  FAIL ${e.javaClass.simpleName}: ${e.message}\n") }
+            s.connect(InetSocketAddress(host, port), 3000); s.close()
+            sb.append("TCP $host:$port  OK (${System.currentTimeMillis() - t0} ms)\n")
+        } catch (e: Exception) { sb.append("TCP $host:$port  FAIL ${e.javaClass.simpleName}: ${e.message}\n") }
         // 2. HTTP root and the API, bound and unbound
         for ((label, path) in listOf("GET /" to "/", "GET /cgi-bin/GetENDCInfo" to "/cgi-bin/GetENDCInfo")) {
             for ((how, net) in listOf("bound" to wifiNet, "default" to null)) {
                 if (how == "bound" && wifiNet == null) continue
                 val t1 = System.currentTimeMillis()
                 try {
-                    val url = URL("http://$host$path")
+                    val url = URL("$scheme://$host:$port$path")
                     val c = (net?.openConnection(url) ?: url.openConnection()) as HttpURLConnection
                     c.connectTimeout = 3000; c.readTimeout = 3000; c.useCaches = false
                     c.setRequestProperty("X-Requested-With", "XMLHttpRequest")
