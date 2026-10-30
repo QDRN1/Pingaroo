@@ -1,6 +1,6 @@
 {
-  "versionCode": 17,
-  "versionName": "2.6",
+  "versionCode": 18,
+  "versionName": "2.7",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Gateway login fixed: hash matches the gateway login page and the session cookie is kept"
+  "notes": "Save Snapshot saves only the source on the toggle (Gateway or Phone); Both still saves both"
 }

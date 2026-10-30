@@ -149,7 +149,7 @@ class MainActivity : AppCompatActivity() {
                 prefs.source = source
                 spark.clear()
                 gatewayMisses = 0
-                last = null; lastAt = 0L
+                last = null; lastPhone = null; lastAt = 0L
                 buildTiles()
                 clearSignalTiles()
                 verdict.set("SWITCHING", Thresholds.AMBER, 0, "Reading from ${when (source) { "gateway" -> "the gateway"; "phone" -> "the phone radio"; else -> "gateway and phone" }}…")
@@ -523,7 +523,8 @@ class MainActivity : AppCompatActivity() {
                 if (s == null || s.error.isNotEmpty()) { Toast.makeText(this, "No reading to save yet", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
                 val snap = s.copy(label = label, event = "snapshot")
                 logger.append(snap); SnapshotStore.add(snap)
-                lastPhone?.let { ph -> if (ph.error.isEmpty()) { val ps = ph.copy(label = label, event = "snapshot"); logger.append(ps); SnapshotStore.add(ps) } }
+                // A snapshot belongs to the source on the toggle; the phone reading is added only in Both mode.
+                if (source == "both") lastPhone?.let { ph -> if (ph.error.isEmpty()) { val ps = ph.copy(label = label, event = "snapshot"); logger.append(ps); SnapshotStore.add(ps) } }
                 anchor.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                 updateSpots(); renderStats()
                 last?.let { render(it.copy(label = label)) }
