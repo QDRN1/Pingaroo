@@ -6,16 +6,65 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 /**
  * Reads cellular status from the AT&T Internet Air (NCM1120) gateway over Wi-Fi.
  * Every request is bound to the Wi-Fi Network when one is known, so it never leaks
  * onto mobile data when Android has demoted the Wi-Fi for lacking internet.
  */
-class GatewayClient(private val baseUrl: String = "http://192.168.1.1", private val wifi: () -> Network? = { null }) {
+class GatewayClient(
+    private val baseUrl: String = "http://192.168.1.1",
+    private val wifi: () -> Network? = { null },
+    private val username: String = "attadmin",
+    private val password: String = "",
+) {
 
     private var slowCache: JSONObject? = null
     private var slowCacheAt = 0L
+    @Volatile var loggedIn = false
+        private set
+    @Volatile var loginError = ""
+        private set
+
+    private fun sha256Hex(text: String): String =
+        MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+
+    /** Log in as the Pi adapter does (login_method "ncm", password_hash "sha256").  The
+     *  gateway then serves the status endpoints to this client's IP. */
+    private fun login(): Boolean {
+        if (password.isEmpty()) { loginError = "no gateway admin password set (Settings)"; return false }
+        val url = URL(baseUrl.trimEnd('/') + "/cgi-bin/Login")
+        val body = JSONObject().put("UserName", username).put("Password", sha256Hex(password)).put("token", "").toString()
+        val conn = ((wifi()?.openConnection(url) ?: url.openConnection()) as HttpURLConnection).apply {
+            connectTimeout = 3000; readTimeout = 3000; requestMethod = "POST"; doOutput = true; useCaches = false
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("X-Requested-With", "XMLHttpRequest")
+            setRequestProperty("User-Agent", "pingaroo-mobile/" + BuildConfig.VERSION_NAME)
+        }
+        try {
+            conn.outputStream.use { it.write(body.toByteArray()) }
+            val code = conn.responseCode
+            val text = (if (code < 400) conn.inputStream else conn.errorStream)?.bufferedReader()?.readText() ?: ""
+            val j = try { JSONObject(text) } catch (_: Exception) { JSONObject() }
+            val ok = code < 400 && (j.optBoolean("Success", false) || j.optInt("Login", 0) == 1)
+            loggedIn = ok
+            loginError = if (ok) "" else "gateway rejected the login (HTTP $code ${text.take(60)})"
+            return ok
+        } finally { conn.disconnect() }
+    }
+
+    private fun needsSession(j: JSONObject): Boolean = j.optBoolean("session_id_error", false)
+
+    /** GET that logs in (once) when the gateway asks for a session. */
+    private fun getWithSession(path: String, timeoutMs: Int = 2500): JSONObject {
+        var j = get(path, timeoutMs)
+        if (needsSession(j)) {
+            if (login()) j = get(path, timeoutMs)
+            if (needsSession(j)) throw IllegalStateException(if (password.isEmpty()) "gateway needs a login: set the admin password in Settings" else "login failed: $loginError")
+        }
+        return j
+    }
 
     private fun get(path: String, timeoutMs: Int = 2500): JSONObject {
         val url = URL(baseUrl.trimEnd('/') + path)
@@ -51,9 +100,12 @@ class GatewayClient(private val baseUrl: String = "http://192.168.1.1", private 
                     setRequestProperty("Accept", "application/json, */*"); setRequestProperty("X-Requested-With", "XMLHttpRequest")
                 }
                 val code = c.responseCode
-                val body = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.readText() ?: ""
+                var body = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.readText() ?: ""
                 c.disconnect()
-                sb.append("HTTP $code\n").append(body.take(1200)).append("\n\n")
+                if (body.contains("session_id_error")) {
+                    body += "\n-> session required; login " + (if (login()) "OK, retrying:\n" + getWithSession(p).toString() else "FAILED: $loginError")
+                }
+                sb.append("HTTP $code\n").append(body.take(1400)).append("\n\n")
             } catch (e: Exception) { sb.append("FAIL ${e.javaClass.simpleName}: ${e.message}\n\n") }
         }
         sb.toString()
@@ -65,13 +117,13 @@ class GatewayClient(private val baseUrl: String = "http://192.168.1.1", private 
     suspend fun fetch(label: String): Sample = withContext(Dispatchers.IO) {
         val t0 = System.currentTimeMillis()
         try {
-            val endc = get("/cgi-bin/GetENDCInfo")
+            val endc = getWithSession("/cgi-bin/GetENDCInfo")
             val now = System.currentTimeMillis()
             if (slowCache == null || now - slowCacheAt > 30_000) {
                 slowCacheAt = now                       // back off even if these fail
                 val merged = JSONObject()
                 for (p in listOf("/cgi-bin/GetLTEStatus", "/cgi-bin/GetLTEBasicSetting", "/cgi-bin/GetWanIp")) {
-                    try { val j = get(p, 2000); for (k in j.keys()) merged.put(k, j.get(k)) } catch (_: Exception) { }
+                    try { val j = getWithSession(p, 2000); for (k in j.keys()) merged.put(k, j.get(k)) } catch (_: Exception) { }
                 }
                 if (merged.length() > 0) slowCache = merged
             }

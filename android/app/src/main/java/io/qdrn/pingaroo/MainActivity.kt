@@ -136,7 +136,7 @@ class MainActivity : AppCompatActivity() {
         logger = CsvLogger(this)
         SnapshotStore.init(this)
         updater = Updater(this)
-        gateway = GatewayClient(prefs.gatewayUrl) { forced.network ?: wifi.network }
+        gateway = GatewayClient(prefs.gatewayUrl, { forced.network ?: wifi.network }, prefs.gatewayUser, prefs.gatewayPassword)
 
         footer.text = "Pingaroo Mobile v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})  ·  Designed by Collin"
         footer.setOnClickListener { showAbout() }
@@ -640,6 +640,8 @@ class MainActivity : AppCompatActivity() {
         val d = resources.displayMetrics.density
         fun pad(v: View) = v.apply { setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), (8 * d).toInt()) }
         val url = EditText(this).apply { hint = "Gateway URL"; setText(prefs.gatewayUrl) }
+        val gwUser = EditText(this).apply { hint = "Gateway admin username"; setText(prefs.gatewayUser) }
+        val gwPw = EditText(this).apply { hint = "Gateway admin password (stored on this phone only)"; setText(prefs.gatewayPassword); inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
         val poll = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         val options = listOf(1000L to "1 s", 2000L to "2 s", 5000L to "5 s")
         for ((ms, name) in options) poll.addView(RadioButton(this).apply { text = name; tag = ms; isChecked = prefs.pollMs == ms })
@@ -653,7 +655,7 @@ class MainActivity : AppCompatActivity() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(pad(TextView(this@MainActivity).apply { text = "Gateway"; setTextColor(Thresholds.AMBER) }))
-            addView(pad(url))
+            addView(pad(url)); addView(pad(gwUser)); addView(pad(gwPw))
             addView(pad(TextView(this@MainActivity).apply { text = "Poll interval"; setTextColor(Thresholds.AMBER) }))
             addView(pad(poll))
             addView(pad(toneSw)); addView(pad(keepSw)); addView(pad(autoSw))
@@ -662,7 +664,8 @@ class MainActivity : AppCompatActivity() {
         }
         AlertDialog.Builder(this).setTitle("Settings").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Save") { _, _ ->
-                prefs.gatewayUrl = url.text.toString(); gateway = GatewayClient(prefs.gatewayUrl) { forced.network ?: wifi.network }
+                prefs.gatewayUrl = url.text.toString(); prefs.gatewayUser = gwUser.text.toString(); prefs.gatewayPassword = gwPw.text.toString()
+                gateway = GatewayClient(prefs.gatewayUrl, { forced.network ?: wifi.network }, prefs.gatewayUser, prefs.gatewayPassword)
                 for (i in 0 until poll.childCount) { val rb = poll.getChildAt(i) as RadioButton; if (rb.isChecked) prefs.pollMs = rb.tag as Long }
                 prefs.tone = toneSw.isChecked; prefs.keepScreenOn = keepSw.isChecked; prefs.autoUpdate = autoSw.isChecked
                 prefs.wifiSsid = ssid.text.toString(); prefs.wifiPassword = pw.text.toString(); prefs.bssid24 = bssid.text.toString(); prefs.wpa3 = wpa3Sw.isChecked

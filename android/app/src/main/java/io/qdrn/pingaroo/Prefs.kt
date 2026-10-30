@@ -39,6 +39,12 @@ class Prefs(ctx: Context) {
     var wpa3: Boolean
         get() = p.getBoolean("wpa3", false)
         set(v) = p.edit().putBoolean("wpa3", v).apply()
+    var gatewayUser: String
+        get() = p.getString("gw_user", "attadmin") ?: "attadmin"
+        set(v) = p.edit().putString("gw_user", v.trim().ifEmpty { "attadmin" }).apply()
+    var gatewayPassword: String
+        get() = p.getString("gw_pw", "") ?: ""
+        set(v) = p.edit().putString("gw_pw", v).apply()
     var logging: Boolean
         get() = p.getBoolean("logging", false)
         set(v) = p.edit().putBoolean("logging", v).apply()
