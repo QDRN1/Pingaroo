@@ -40,9 +40,13 @@ cell_5g_rsrp       = "nr5g_rsrp"
 cell_5g_rsrq       = "nr5g_rsrq"
 cell_5g_sinr       = "nr5g_snr"
 cell_5g_pci        = "nr5g_pci"
-cell_rssi          = "nr5g_rssi"
 cell_pci           = "nr5g_pci"
 cell_tac           = "nr5g_tac"
 cell_cell_id       = "nr5g_gci"
 cell_bandwidth_mhz = "nrbandw"      # router's raw NR bandwidth code, not MHz
-cell_band          = "data.0.band"  # LTE anchor band (e.g. B2); its RSRP/RSRQ/SINR are not reported by this firmware
+# LTE anchor cell (data[0] of GetENDCInfo): reported in every row, NR or not.
+cell_band          = "data.0.band"
+cell_rsrp          = "data.0.rsrp"
+cell_rsrq          = "data.0.rsrq"
+cell_sinr          = "data.0.sinr"
+cell_rssi          = "data.0.rssi"
