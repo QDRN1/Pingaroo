@@ -2,5 +2,5 @@
   "versionCode": 13,
   "versionName": "2.2",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Updates via browser download (no install permission; no Play Protect warning), stable release signature, Gateway raw JSON dump, old snapshots imported from CSV. This version needs a one-time uninstall of the old app."
+  "notes": "Updates open in the browser (no install permission, no Play Protect block); Gateway raw JSON dump; earlier snapshots imported from CSV"
 }
