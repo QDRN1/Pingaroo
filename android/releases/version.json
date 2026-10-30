@@ -1,6 +1,6 @@
 {
-  "versionCode": 10,
-  "versionName": "1.9",
+  "versionCode": 11,
+  "versionName": "2.0",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Force 2.4 GHz radio (menu): connects to the gateway's 2.4 GHz BSSID and binds gateway reads to it; Wi-Fi credentials in Settings; BSSID in probe"
+  "notes": "Gateway probe tests the forced 2.4 GHz network when active and prints the bound network's IP, route and DNS"
 }
