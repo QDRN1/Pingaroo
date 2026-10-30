@@ -1,6 +1,6 @@
 {
-  "versionCode": 14,
-  "versionName": "2.3",
+  "versionCode": 15,
+  "versionName": "2.4",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Gateway login with the admin password from Settings (the gateway requires a session per client)"
+  "notes": "Status line shows the live Wi-Fi; WRONG WI-FI state when not on the gateway network; forced radio state clears on network change"
 }
