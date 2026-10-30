@@ -4,6 +4,9 @@ import android.net.Network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.net.CookieHandler
+import java.net.CookieManager
+import java.net.CookiePolicy
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -20,6 +23,12 @@ class GatewayClient(
     private val password: String = "",
 ) {
 
+    init {
+        // The gateway returns its session as a cookie after Login; HttpURLConnection only
+        // keeps cookies when a process-wide CookieHandler is installed.
+        if (CookieHandler.getDefault() == null) CookieHandler.setDefault(CookieManager(null, CookiePolicy.ACCEPT_ALL))
+    }
+
     private var slowCache: JSONObject? = null
     private var slowCacheAt = 0L
     @Volatile var loggedIn = false
@@ -30,12 +39,13 @@ class GatewayClient(
     private fun sha256Hex(text: String): String =
         MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    /** Log in as the Pi adapter does (login_method "ncm", password_hash "sha256").  The
-     *  gateway then serves the status endpoints to this client's IP. */
+    /** Log in exactly as the gateway's own login page does (script/login.js):
+     *  POST JSON {UserName, Password: SHA-256("UserName:password") hex, token: ""}.
+     *  The session comes back as a cookie, kept by the CookieHandler installed above. */
     private fun login(): Boolean {
         if (password.isEmpty()) { loginError = "no gateway admin password set (Settings)"; return false }
         val url = URL(baseUrl.trimEnd('/') + "/cgi-bin/Login")
-        val body = JSONObject().put("UserName", username).put("Password", sha256Hex(password)).put("token", "").toString()
+        val body = JSONObject().put("UserName", username).put("Password", sha256Hex("$username:$password")).put("token", "").toString()
         val conn = ((wifi()?.openConnection(url) ?: url.openConnection()) as HttpURLConnection).apply {
             connectTimeout = 3000; readTimeout = 3000; requestMethod = "POST"; doOutput = true; useCaches = false
             setRequestProperty("Content-Type", "application/json")
@@ -49,7 +59,12 @@ class GatewayClient(
             val j = try { JSONObject(text) } catch (_: Exception) { JSONObject() }
             val ok = code < 400 && (j.optBoolean("Success", false) || j.optInt("Login", 0) == 1)
             loggedIn = ok
-            loginError = if (ok) "" else "gateway rejected the login (HTTP $code ${text.take(60)})"
+            loginError = when {
+                ok -> ""
+                j.optInt("Login", 0) == 2 -> "another device is logged into the gateway admin page; log out there first"
+                j.optInt("LoginAttempt", 0) >= 5 -> "gateway locked logins after 5 failed attempts; wait a few minutes"
+                else -> "gateway rejected the login (HTTP $code ${text.take(60)})"
+            }
             return ok
         } finally { conn.disconnect() }
     }

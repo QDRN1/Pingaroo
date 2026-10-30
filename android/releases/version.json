@@ -1,6 +1,6 @@
 {
-  "versionCode": 16,
-  "versionName": "2.5",
+  "versionCode": 17,
+  "versionName": "2.6",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "In-app update download and install restored"
+  "notes": "Gateway login fixed: hash matches the gateway login page and the session cookie is kept"
 }

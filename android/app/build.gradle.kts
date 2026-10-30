@@ -21,8 +21,8 @@ android {
         applicationId = "io.qdrn.pingaroo.mobile"
         minSdk = 29
         targetSdk = 35
-        versionCode = 16
-        versionName = "2.5"
+        versionCode = 17
+        versionName = "2.6"
     }
 
     signingConfigs {
