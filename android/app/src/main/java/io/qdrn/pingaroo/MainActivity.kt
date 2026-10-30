@@ -478,7 +478,11 @@ class MainActivity : AppCompatActivity() {
             pPci == null || gPci == null -> Triple("-", "no common radio to compare", Thresholds.MUTED)
             confirmed -> Triple("YES  $rat PCI $pPci", if (cellKnown) "cell ID matches" else "channel matches", Thresholds.GREEN)
             pciSame && !conflict -> Triple("PCI MATCH  $rat $pPci", "cell ID unknown, not confirmed", Thresholds.AMBER)
-            pciSame -> Triple("NO  $rat PCI $pPci", if (cellKnown) "different cell ID" else if (arfcnKnown) "different channel" else "different band", Thresholds.AMBER)
+            pciSame -> Triple("NO  $rat PCI $pPci", when {
+                cellKnown && pCell != gCell -> "different cell ID"
+                arfcnKnown && pArfcn != gArfcn -> "different channel"
+                else -> "different band"
+            }, Thresholds.AMBER)
             else -> Triple("NO  $rat $pPci vs $gPci", "", Thresholds.AMBER)
         }
         tile("d_cell").set("SAME CELL", txt, sub, col, big = false)
