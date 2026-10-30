@@ -198,9 +198,13 @@ class MainActivity : AppCompatActivity() {
                 if (!paused) {
                     val src = source
                     var phoneSample: Sample? = null
-                    val raw = when (src) {
-                        "gateway" -> gateway.fetch(label)
-                        "phone" -> phone.fetch(label)
+                    wifi.refresh()
+                    val wrongWifi = src != "phone" && !onGatewayWifi()
+                    val raw = when {
+                        wrongWifi && src == "gateway" -> Sample(source = "gateway", label = label, error = "wrong wifi")
+                        wrongWifi -> coroutineScope { val p = async { phone.fetch(label) }; phoneSample = p.await(); Sample(source = "gateway", label = label, error = "wrong wifi") }
+                        src == "gateway" -> gateway.fetch(label)
+                        src == "phone" -> phone.fetch(label)
                         else -> coroutineScope {
                             val g = async { gateway.fetch(label) }
                             val p = async { phone.fetch(label) }
@@ -251,8 +255,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------- ticker
+    private fun onGatewayWifi(): Boolean = wifi.ssid.isNotEmpty() && wifi.ssid.equals(prefs.wifiSsid, ignoreCase = true)
+
     private fun tick() {
         clock.text = SimpleDateFormat("EEE MMM d, yyyy  HH:mm:ss", Locale.US).format(Date())
+        wifi.refresh()
+        if (forced.state == "connected" && !onGatewayWifi()) forced.release()
         if (paused) { freshness.text = "PAUSED"; freshness.setTextColor(Thresholds.AMBER); return }
         if (lastAt == 0L) { freshness.text = "waiting for first reading"; freshness.setTextColor(Thresholds.MUTED); return }
         val age = (System.currentTimeMillis() - lastAt) / 1000
@@ -266,9 +274,10 @@ class MainActivity : AppCompatActivity() {
             val retry = if (gatewayMisses in 1..2) " · retrying ($gatewayMisses)" else ""
             val bothNote = (if (source == "both") " · +phone" else "") + when (forced.state) { "connected" -> " · forced 2.4 GHz"; "requesting" -> " · requesting 2.4 GHz…"; else -> "" } + (if (wifi.vpnActive()) " · VPN ACTIVE" else "")
             when {
-                !wifi.onWifi -> "Phone is not on Wi-Fi: join the gateway's network"
-                l != null && l.error.isEmpty() -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw · ${l.fetchMs ?: "-"} ms$retry$bothNote" + if (!wifi.validated) " · no internet flag" else ""
-                else -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw not answering$retry$bothNote"
+                !wifi.onWifi -> "Not on Wi-Fi. Join ${prefs.wifiSsid}."
+                !onGatewayWifi() -> "On Wi-Fi '${ss.ifEmpty { "?" }}', not ${prefs.wifiSsid}. Join ${prefs.wifiSsid}."
+                l != null && l.error.isEmpty() -> "Wi-Fi $ss · $gw · ${l.fetchMs ?: "-"} ms$retry$bothNote" + if (!wifi.validated) " · no internet flag" else ""
+                else -> "Wi-Fi $ss · $gw not answering$retry$bothNote"
             }
         } else {
             val l = last
@@ -455,6 +464,8 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------- errors
     private fun errorPresentation(s: Sample): Pair<String, String> {
         if (s.source == "gateway") {
+            if (!wifi.onWifi) return "NOT ON WI-FI" to "Join ${prefs.wifiSsid} to read the gateway."
+            if (!onGatewayWifi()) return "WRONG WI-FI" to "Phone is on '${wifi.ssid}'. Join ${prefs.wifiSsid} to read the gateway."
             if (wifi.vpnActive() || s.error.contains("EPERM"))
                 return "VPN IN THE WAY" to "A VPN on this phone captures traffic to ${prefs.gatewayUrl.removePrefix("http://")} (and blocks binding to Wi-Fi). Disconnect the VPN, or exclude 192.168.1.0/24 from it."
             return "GATEWAY OFFLINE" to if (!wifi.onWifi) "Phone is not on Wi-Fi. Join Kangaroo Labs." else

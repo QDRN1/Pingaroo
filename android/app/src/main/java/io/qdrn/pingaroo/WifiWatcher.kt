@@ -61,5 +61,24 @@ class WifiWatcher(private val ctx: Context) {
         ssid = info?.ssid?.trim('"')?.takeIf { it != "<unknown ssid>" } ?: ""
     }
 
+    /** Re-read the live Wi-Fi state (called every second by the screen), so the SSID
+     *  shown can never lag behind a network change. */
+    @Suppress("DEPRECATION")
+    fun refresh() {
+        try {
+            var found: Network? = null
+            for (n in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(n) ?: continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) { found = n; update(caps); break }
+            }
+            if (found == null) { network = null; ssid = ""; validated = false; return }
+            network = found
+            if (ssid.isEmpty()) {
+                val info = (ctx.getSystemService(Context.WIFI_SERVICE) as WifiManager).connectionInfo
+                ssid = info?.ssid?.trim('"')?.takeIf { it != "<unknown ssid>" } ?: ""
+            }
+        } catch (_: Exception) { }
+    }
+
     fun stop() { cb?.let { try { cm.unregisterNetworkCallback(it) } catch (_: Exception) { } }; cb = null }
 }
