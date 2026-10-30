@@ -1,6 +1,6 @@
 {
-  "versionCode": 15,
-  "versionName": "2.4",
+  "versionCode": 16,
+  "versionName": "2.5",
   "apk": "android/releases/pingaroo-mobile-debug.apk",
-  "notes": "Status line shows the live Wi-Fi; WRONG WI-FI state when not on the gateway network; forced radio state clears on network change"
+  "notes": "In-app update download and install restored"
 }
