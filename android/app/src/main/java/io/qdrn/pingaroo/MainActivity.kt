@@ -134,6 +134,7 @@ class MainActivity : AppCompatActivity() {
         wifi = WifiWatcher(this)
         forced = ForcedWifi(this)
         logger = CsvLogger(this)
+        SnapshotStore.init(this)
         updater = Updater(this)
         gateway = GatewayClient(prefs.gatewayUrl) { forced.network ?: wifi.network }
 
@@ -263,7 +264,7 @@ class MainActivity : AppCompatActivity() {
             val l = last
             val gw = prefs.gatewayUrl.removePrefix("http://")
             val retry = if (gatewayMisses in 1..2) " · retrying ($gatewayMisses)" else ""
-            val bothNote = (if (source == "both") " · +phone" else "") + when (forced.state) { "connected" -> " · forced 2.4 GHz"; "requesting" -> " · requesting 2.4 GHz…"; else -> "" }
+            val bothNote = (if (source == "both") " · +phone" else "") + when (forced.state) { "connected" -> " · forced 2.4 GHz"; "requesting" -> " · requesting 2.4 GHz…"; else -> "" } + (if (wifi.vpnActive()) " · VPN ACTIVE" else "")
             when {
                 !wifi.onWifi -> "Phone is not on Wi-Fi: join the gateway's network"
                 l != null && l.error.isEmpty() -> "Wi-Fi ${ss.ifEmpty { "?" }} · $gw · ${l.fetchMs ?: "-"} ms$retry$bothNote" + if (!wifi.validated) " · no internet flag" else ""
@@ -454,6 +455,8 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------- errors
     private fun errorPresentation(s: Sample): Pair<String, String> {
         if (s.source == "gateway") {
+            if (wifi.vpnActive() || s.error.contains("EPERM"))
+                return "VPN IN THE WAY" to "A VPN on this phone captures traffic to ${prefs.gatewayUrl.removePrefix("http://")} (and blocks binding to Wi-Fi). Disconnect the VPN, or exclude 192.168.1.0/24 from it."
             return "GATEWAY OFFLINE" to if (!wifi.onWifi) "Phone is not on Wi-Fi. Join Kangaroo Labs." else
                 "No answer from ${prefs.gatewayUrl.removePrefix("http://")} on Wi-Fi '${wifi.ssid.ifEmpty { "?" }}'. ${s.error}"
         }

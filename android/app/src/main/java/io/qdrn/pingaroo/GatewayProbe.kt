@@ -18,6 +18,11 @@ object GatewayProbe {
         val sb = StringBuilder()
         val host = baseUrl.removePrefix("http://").removePrefix("https://").trimEnd('/')
         sb.append("SSID: ${ssid.ifEmpty { "?" }}   bound network: ${if (wifiNet != null) "Wi-Fi" else "NONE (default)"}\n")
+        try {
+            val cm0 = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val vpn = cm0.allNetworks.any { n -> cm0.getNetworkCapabilities(n)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true }
+            sb.append("VPN active: $vpn${if (vpn) "  <-- this captures LAN traffic; disconnect it or exclude 192.168.1.0/24" else ""}\n")
+        } catch (_: Exception) { }
         if (wifiNet != null) {
             try {
                 val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager

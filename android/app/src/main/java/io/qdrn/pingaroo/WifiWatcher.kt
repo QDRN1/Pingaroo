@@ -23,6 +23,11 @@ class WifiWatcher(private val ctx: Context) {
     @Volatile var validated = false
         private set
     val onWifi: Boolean get() = network != null
+
+    /** True when a VPN network is active on the phone (it captures LAN-bound traffic). */
+    fun vpnActive(): Boolean = try {
+        cm.allNetworks.any { n -> cm.getNetworkCapabilities(n)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
+    } catch (_: Exception) { false }
     private var cb: ConnectivityManager.NetworkCallback? = null
 
     fun start() {

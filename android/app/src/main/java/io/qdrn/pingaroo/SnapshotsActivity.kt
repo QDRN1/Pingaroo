@@ -36,6 +36,7 @@ class SnapshotsActivity : AppCompatActivity() {
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), 0, dp(14), dp(14)) }
         root.addView(ScrollView(this).apply { addView(list) })
         setContentView(root)
+        SnapshotStore.init(this)
         render()
     }
 
@@ -72,7 +73,7 @@ class SnapshotsActivity : AppCompatActivity() {
                 this.text = "✕"; minWidth = 0; setPadding(dp(10), 0, dp(10), 0)
                 setOnClickListener {
                     AlertDialog.Builder(this@SnapshotsActivity).setMessage("Remove snapshot '${s.label}' from this list? (The CSV row stays.)")
-                        .setPositiveButton("Remove") { _, _ -> SnapshotStore.items.remove(s); render() }.setNegativeButton("Cancel", null).show()
+                        .setPositiveButton("Remove") { _, _ -> SnapshotStore.remove(s); render() }.setNegativeButton("Cancel", null).show()
                 }
             })
             row.setOnClickListener {

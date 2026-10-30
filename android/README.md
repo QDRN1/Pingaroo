@@ -73,6 +73,13 @@ cd android
 
 APK lands at `app/build/outputs/apk/debug/app-debug.apk`.
 
+## If the Gateway Source Says "VPN IN THE WAY"
+
+A VPN on the phone (WireGuard, Proton, corporate) captures traffic to 192.168.1.1 and
+Android's VPN lockdown blocks apps from binding to Wi-Fi. Disconnect the VPN while
+reading the gateway, or exclude 192.168.1.0/24 from the tunnel and turn off "Block
+connections without VPN" for that VPN app. The Gateway probe prints "VPN active".
+
 ## Notes
 
 - The app contacts only the gateway address you set (default `http://192.168.1.1`).
