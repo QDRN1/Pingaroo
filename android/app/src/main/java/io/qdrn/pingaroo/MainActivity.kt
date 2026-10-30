@@ -540,6 +540,7 @@ class MainActivity : AppCompatActivity() {
         m.menu.add(0, 7, 6, "Radio debug dump")
         m.menu.add(0, 8, 7, "Gateway probe")
         m.menu.add(0, 9, 8, if (forced.state == "off") "Force 2.4 GHz radio" else "Release 2.4 GHz radio (${forced.state})")
+        m.menu.add(0, 10, 9, "Gateway raw JSON")
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 1 -> startActivity(Intent(this, SnapshotsActivity::class.java))
@@ -552,6 +553,7 @@ class MainActivity : AppCompatActivity() {
                 7 -> showRadioDebug()
                 8 -> showGatewayProbe()
                 9 -> toggleForced()
+                10 -> showGatewayRaw()
             }
             true
         }
@@ -563,6 +565,16 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Clears the session stats, best spot and the snapshot list, and starts a new CSV file. Existing CSV files stay on the phone.")
             .setPositiveButton("Clear") { _, _ -> stats.reset(); SnapshotStore.clear(); spark.clear(); logger.newFile(); updateSpots(); renderStats() }
             .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun showGatewayRaw() {
+        lifecycleScope.launch {
+            val text = try { gateway.rawDump() } catch (e: Exception) { "failed: $e" }
+            AlertDialog.Builder(this@MainActivity).setTitle("Gateway raw JSON").setMessage(text.take(6000))
+                .setPositiveButton("Share") { _, _ ->
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }, "Share gateway JSON"))
+                }.setNegativeButton("Close", null).show()
+        }
     }
 
     private fun toggleForced() {
@@ -660,6 +672,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------------------------------------------------------------- updates
+    private fun checkForUpdate(manual: Boolean) {
+        lifecycleScope.launch {
+            try {
+                val info = updater.check()
+                if (updater.isNewer(info)) {
+                    pendingUpdate = info
+                    updateBanner.text = "Update available: v${info.versionName}  (tap to install)" + if (info.notes.isNotEmpty()) "\n${info.notes}" else ""
+                    updateBanner.visibility = View.VISIBLE
+                    if (manual) installUpdate(info)
+                } else if (manual) {
+                    Toast.makeText(this@MainActivity, "Up to date (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                if (manual) Toast.makeText(this@MainActivity, "Update check failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun installUpdate(info: Updater.Info) {
+        AlertDialog.Builder(this)
+            .setTitle("Update to v${info.versionName}")
+            .setMessage((info.notes.ifEmpty { "A newer build is on GitHub." }) +
+                "\n\nThe APK opens in your browser. When the download finishes, tap it in the notification to install. " +
+                "Pingaroo Mobile never installs packages itself, so Play Protect has nothing to object to.")
+            .setPositiveButton("Open download") { _, _ -> startActivity(updater.browserIntent(info)) }
+            .setNegativeButton("Later", null)
+            .show()
+    }
+
     private fun checkForUpdate(manual: Boolean) {
         lifecycleScope.launch {
             try {

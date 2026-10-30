@@ -39,6 +39,26 @@ class GatewayClient(private val baseUrl: String = "http://192.168.1.1", private 
         }
     }
 
+    /** Verbatim responses of the endpoints the app reads, for diagnosing parse gaps. */
+    suspend fun rawDump(): String = withContext(Dispatchers.IO) {
+        val sb = StringBuilder()
+        for (p in listOf("/cgi-bin/GetENDCInfo", "/cgi-bin/GetLTEStatus", "/cgi-bin/GetLTEBasicSetting", "/cgi-bin/GetWanIp")) {
+            sb.append("== $p ==\n")
+            try {
+                val url = URL(baseUrl.trimEnd('/') + p)
+                val c = ((wifi()?.openConnection(url) ?: url.openConnection()) as HttpURLConnection).apply {
+                    connectTimeout = 2500; readTimeout = 2500; useCaches = false
+                    setRequestProperty("Accept", "application/json, */*"); setRequestProperty("X-Requested-With", "XMLHttpRequest")
+                }
+                val code = c.responseCode
+                val body = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.readText() ?: ""
+                c.disconnect()
+                sb.append("HTTP $code\n").append(body.take(1200)).append("\n\n")
+            } catch (e: Exception) { sb.append("FAIL ${e.javaClass.simpleName}: ${e.message}\n\n") }
+        }
+        sb.toString()
+    }
+
     private fun JSONObject.intOrNull(key: String): Int? =
         optString(key, "").trim().removeSuffix("dBm").removeSuffix("dB").trim().toIntOrNull()
 

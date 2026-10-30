@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -78,11 +77,8 @@ class Updater(private val ctx: Context) {
         out
     }
 
-    fun installIntent(apk: File): Intent {
-        val uri: Uri = FileProvider.getUriForFile(ctx, "io.qdrn.pingaroo.mobile.files", apk)
-        return Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-    }
+    /** Opens the APK in the browser; the browser downloads it and acts as the installer,
+     *  so this app needs no install permission and Play Protect has nothing to flag. */
+    fun browserIntent(info: Info): Intent =
+        Intent(Intent.ACTION_VIEW, Uri.parse(base + info.apkPath)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
 }

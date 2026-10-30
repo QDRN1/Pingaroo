@@ -53,6 +53,18 @@ The tile grid is 3 wide on the cover screen and 4 wide on the inner screen.
 
 Tested target: Samsung Galaxy Z Fold, Android 14 or newer. Minimum Android 10.
 
+## Updates and Signing
+
+The app checks GitHub for a newer `android/releases/version.json` and offers it in a
+banner. Tapping it opens the APK in the browser; the browser downloads it and you tap
+the download to install. The app never installs packages itself (no install
+permission), which keeps Google Play Protect quiet.
+
+Signing: if `android/keystore.properties` (git-ignored) points at a keystore, release
+and debug builds are signed with it so builds from any machine install over each
+other. Keep that keystore and its properties file outside git; without them a build
+falls back to the local debug key, and Android then requires an uninstall to switch.
+
 ## Install the Prebuilt APK
 
 1. Copy `releases/pingaroo-mobile-debug.apk` to the phone (download from GitHub, or

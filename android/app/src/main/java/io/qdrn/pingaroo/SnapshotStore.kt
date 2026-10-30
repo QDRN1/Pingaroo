@@ -12,7 +12,8 @@ object SnapshotStore {
 
     fun init(ctx: Context) {
         if (file != null) return
-        file = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "snapshots.json")
+        val dir = ctx.getExternalFilesDir(null) ?: ctx.filesDir
+        file = File(dir, "snapshots.json")
         try {
             val f = file!!
             if (f.exists()) {
@@ -21,6 +22,50 @@ object SnapshotStore {
                 for (i in 0 until arr.length()) fromJson(arr.getJSONObject(i))?.let { items.add(it) }
             }
         } catch (_: Exception) { }
+        // Import snapshot rows from CSV files written by earlier versions (once per row).
+        try {
+            val known = items.map { it.time + it.label }.toHashSet()
+            var added = 0
+            dir.listFiles { f -> f.name.startsWith("pingaroo-mobile-") && f.name.endsWith(".csv") }?.sortedBy { it.name }?.forEach { csv ->
+                val lines = csv.readLines()
+                if (lines.size < 2) return@forEach
+                val idx = lines[0].split(",").withIndex().associate { it.value to it.index }
+                for (line in lines.drop(1)) {
+                    val cells = splitCsv(line)
+                    fun g(name: String): String? = idx[name]?.let { cells.getOrNull(it) }?.takeIf { it.isNotEmpty() }
+                    if (g("event") != "snapshot") continue
+                    val key = (g("time") ?: "") + (g("label") ?: "")
+                    if (key in known) continue
+                    items.add(Sample(time = g("time") ?: "", source = g("source") ?: "", label = g("label") ?: "",
+                        lat = g("lat")?.toDoubleOrNull(), lon = g("lon")?.toDoubleOrNull(), accuracyM = g("accuracy_m")?.toFloatOrNull(),
+                        tech = g("tech") ?: "", operator = g("operator") ?: "", band = g("band") ?: "",
+                        arfcn = g("arfcn")?.toIntOrNull(), pci = g("pci")?.toIntOrNull(), tac = g("tac")?.toIntOrNull(), cellId = g("cell_id")?.toLongOrNull(),
+                        rsrp = g("rsrp")?.toIntOrNull(), rsrq = g("rsrq")?.toIntOrNull(), sinr = g("sinr")?.toIntOrNull(), rssi = g("rssi")?.toIntOrNull(),
+                        bandwidth = g("bandwidth") ?: "", lteBand = g("lte_band") ?: "", lteEarfcn = g("lte_earfcn")?.toIntOrNull(),
+                        ltePci = g("lte_pci")?.toIntOrNull(), lteCellId = g("lte_cell_id")?.toLongOrNull(), lteTac = g("lte_tac")?.toIntOrNull(),
+                        lteRsrp = g("lte_rsrp")?.toIntOrNull(), lteRsrq = g("lte_rsrq")?.toIntOrNull(), lteRssnr = g("lte_rssnr")?.toIntOrNull(),
+                        apn = g("apn") ?: "", wanIp = g("wan_ip") ?: "", event = "snapshot"))
+                    known.add(key); added++
+                }
+            }
+            if (added > 0) { items.sortByDescending { it.time }; save() }
+        } catch (_: Exception) { }
+    }
+
+    private fun splitCsv(line: String): List<String> {
+        val out = ArrayList<String>(); val sb = StringBuilder(); var q = false; var i = 0
+        while (i < line.length) {
+            val c = line[i]
+            when {
+                c == '"' && q && i + 1 < line.length && line[i + 1] == '"' -> { sb.append('"'); i++ }
+                c == '"' -> q = !q
+                c == ',' && !q -> { out.add(sb.toString()); sb.setLength(0) }
+                else -> sb.append(c)
+            }
+            i++
+        }
+        out.add(sb.toString())
+        return out
     }
 
     fun add(s: Sample) { items.add(0, s); save() }
