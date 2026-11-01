@@ -77,7 +77,15 @@ DEFAULTS: dict[str, Any] = {
         "framebuffer": "",
         "width": 480,
         "height": 320,
-        "sleep_seconds": 120,
+        # Software dimming (the SPI panel has no backlight control): frames are scaled
+        # before they reach the panel, so the screen keeps updating while dim.
+        "dim_after_seconds": 60,      # idle seconds before dimming; 0 disables
+        "dim_level": 0.5,             # idle brightness by day (0..1)
+        "night_start": "20:00",       # local time window with lower brightness
+        "night_end": "06:00",
+        "night_level": 0.5,           # active brightness at night
+        "night_dim_level": 0.25,      # idle brightness at night
+        "sleep_seconds": 0,           # full blank after this many idle seconds; 0 = never
         "font": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "font_bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "console_graphics_mode": "auto",
@@ -147,6 +155,18 @@ def _deep_merge(base: dict, override: dict, path: str = "") -> dict:
     return out
 
 
+def parse_hhmm(text) -> int | None:
+    """'HH:MM' -> minutes since midnight, or None when malformed."""
+    try:
+        hh, mm = str(text).strip().split(":")
+        h, m = int(hh), int(mm)
+    except (ValueError, AttributeError):
+        return None
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return None
+    return h * 60 + m
+
+
 def _require(cond: bool, msg: str) -> None:
     if not cond:
         raise ConfigError(msg)
@@ -192,6 +212,11 @@ def validate(cfg: dict) -> None:
     disp = cfg["display"]
     _require(disp["width"] > 0 and disp["height"] > 0, "display size must be positive")
     _require(disp["sleep_seconds"] >= 0, "display.sleep_seconds must be >= 0 (0 disables sleep)")
+    _require(disp["dim_after_seconds"] >= 0, "display.dim_after_seconds must be >= 0 (0 disables dimming)")
+    for k in ("dim_level", "night_level", "night_dim_level"):
+        _require(0.0 <= float(disp[k]) <= 1.0, f"display.{k} must be between 0 and 1")
+    for k in ("night_start", "night_end"):
+        _require(parse_hhmm(disp[k]) is not None, f"display.{k} must be HH:MM (24-hour)")
     _require(disp["console_graphics_mode"] in ("auto", "always", "never"),
              "display.console_graphics_mode must be auto, always or never")
 

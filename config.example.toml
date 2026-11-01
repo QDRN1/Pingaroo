@@ -81,8 +81,16 @@ timeout_seconds = 8
 framebuffer = ""
 width = 480
 height = 320
-# Screen sleeps this many seconds after the last touch. 0 disables sleep.
-sleep_seconds = 120
+# Software dimming (the SPI panel has no backlight control): frames are scaled before
+# they reach the panel, so the screen keeps updating while dim and any tap restores it.
+dim_after_seconds = 60      # idle seconds before dimming; 0 disables
+dim_level = 0.5             # idle brightness by day (0..1)
+night_start = "20:00"       # local-time window with lower brightness
+night_end = "06:00"
+night_level = 0.5           # active brightness at night
+night_dim_level = 0.25      # idle brightness at night
+# Full blank this many seconds after the last touch. 0 (default) never blanks.
+sleep_seconds = 0
 font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 font_bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 # auto: switch tty1 to graphics mode only when the LCD is /dev/fb0 (no HDMI).

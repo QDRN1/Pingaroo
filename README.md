@@ -236,8 +236,11 @@ Back, Up, Down, Next Label and a Home Wi-Fi / Test Wi-Fi toggle. The toggle swit
 which network the loop tests, between the router under test and the home network,
 without stopping the loop.
 
-The screen sleeps after 120 s without a touch (configurable, `0` disables). The first
-touch only wakes it. Testing, logging and Wi-Fi are unaffected by sleep. If the panel
+The screen dims to 50% after 60 s without a touch, and between 20:00 and 06:00 local
+time it runs at 50% (25% when idle). Dimming is done in software because the SPI panel
+has no backlight control; the screen keeps updating while dim and any tap restores full
+brightness and acts normally. A full blank (`display.sleep_seconds`) is off by default;
+when enabled, the first touch only wakes it. Testing, logging and Wi-Fi are unaffected by sleep. If the panel
 has no backlight control, the screen is driven black but the backlight stays lit.
 
 ## After a Crash or Power Loss

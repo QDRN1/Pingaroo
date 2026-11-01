@@ -11,6 +11,8 @@ import signal
 import sys
 import time
 
+from PIL import Image
+
 from . import __version__, clock, config as config_mod
 from .backend import RealBackend
 from .display import ConsoleGuard, Framebuffer, HeadlessFramebuffer, console_on_framebuffer, pick_framebuffer
@@ -49,6 +51,38 @@ class SingleInstance:
             self.fd = None
 
 
+def in_night_window(minutes_now: int, start: int, end: int) -> bool:
+    """True when minutes_now (since local midnight) falls in [start, end); the window may wrap midnight."""
+    if start == end:
+        return False
+    if start < end:
+        return start <= minutes_now < end
+    return minutes_now >= start or minutes_now < end
+
+
+def brightness_level(idle_s: float, minutes_now: int, disp: dict) -> float:
+    """Software brightness 0..1 for the current idle time and local clock."""
+    night = in_night_window(minutes_now, config_mod.parse_hhmm(disp["night_start"]) or 0,
+                            config_mod.parse_hhmm(disp["night_end"]) or 0)
+    dim_after = float(disp["dim_after_seconds"])
+    idle = dim_after > 0 and idle_s >= dim_after
+    if night and idle:
+        return float(disp["night_dim_level"])
+    if idle:
+        return float(disp["dim_level"])
+    if night:
+        return float(disp["night_level"])
+    return 1.0
+
+
+def apply_brightness(img: Image.Image, level: float) -> Image.Image:
+    """Scale every channel by level; the panel has no backlight control."""
+    if level >= 0.999:
+        return img
+    lut = [min(255, int(round(i * level))) for i in range(256)]
+    return img.convert("RGB").point(lut * 3)
+
+
 class UIController:
     """Owns which screen is showing, the sleep timer, and tap handling."""
 
@@ -64,6 +98,8 @@ class UIController:
         self.pages = 1
         self.asleep = False
         self.sleep_seconds = float(cfg["display"]["sleep_seconds"])
+        self.disp_cfg = dict(cfg["display"])
+        self.level = 1.0
         self.debounce_s = int(cfg["touch"]["debounce_ms"]) / 1000.0
         self.tap_max_move = int(cfg["touch"]["tap_max_move_px"])
         self.last_touch_mono = time.monotonic()
@@ -89,6 +125,8 @@ class UIController:
             self.last_touch_mono = ev.t
             return
         self.last_touch_mono = ev.t
+        if ev.kind == "down" and self.level < 0.999:
+            self.render(force=True)
         if self.consume_until_up:
             if ev.kind == "up":
                 self.consume_until_up = False
@@ -194,12 +232,22 @@ class UIController:
             return
         snap, storage = self.snapshot()
         extra = dict(self.extra)
-        extra["sleep"] = ("disabled" if self.sleep_seconds <= 0 else
-                          f"{int(self.sleep_seconds)} s, method {getattr(self.fb, 'sleep_method', '-')}")
+        d = self.disp_cfg
+        dim_txt = ("off" if float(d["dim_after_seconds"]) <= 0 else
+                   f"{int(float(d['dim_after_seconds']))} s -> {int(float(d['dim_level']) * 100)}%")
+        night_txt = f"{d['night_start']}-{d['night_end']} {int(float(d['night_level']) * 100)}%/{int(float(d['night_dim_level']) * 100)}%"
+        blank_txt = "off" if self.sleep_seconds <= 0 else f"{int(self.sleep_seconds)} s ({getattr(self.fb, 'sleep_method', '-')})"
+        extra["sleep"] = f"dim {dim_txt}, night {night_txt}, blank {blank_txt}, now {int(self.level * 100)}%"
         if self.screen == "details":
             img, self.hits, self.pages = self.renderer.render_details(snap, storage, extra, self.page)
         else:
             img, self.hits = self.renderer.render_main(snap, storage, self.display_note)
+        lt = time.localtime()
+        level = brightness_level(time.monotonic() - self.last_touch_mono, lt.tm_hour * 60 + lt.tm_min, self.disp_cfg)
+        if level != self.level:
+            self.level = level
+            force = True
+        img = apply_brightness(img, level)
         data = img.tobytes()
         if force or data != self.last_frame:
             try:
@@ -351,6 +399,7 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
             snap["storage"] = st
             snap["screen"] = controller.screen
             snap["asleep"] = controller.asleep
+            snap["brightness"] = controller.level
             snap["display"] = extra.get("display")
             snap["touch"] = extra.get("touch")
             snap["pid"] = os.getpid()

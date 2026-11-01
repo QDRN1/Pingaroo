@@ -121,8 +121,13 @@ class Framebuffer:
     @staticmethod
     def _find_backlight() -> str | None:
         for path in sorted(glob.glob("/sys/class/backlight/*")):
-            if os.path.exists(f"{path}/bl_power") or os.path.exists(f"{path}/brightness"):
-                return path
+            if not (os.path.exists(f"{path}/bl_power") or os.path.exists(f"{path}/brightness")):
+                continue
+            # fbtft registers a placeholder backlight (e.g. fb_ili9486) with max_brightness 0
+            # that controls nothing; writes to it succeed but the panel never blanks.
+            if _read(f"{path}/max_brightness", "0").strip() in ("", "0"):
+                continue
+            return path
         return None
 
     def close(self) -> None:
@@ -182,8 +187,10 @@ class Framebuffer:
             except OSError:
                 self.blank_supported = False
                 note = "black frame only (backlight stays on)"
-            if blank:
-                self.blit(Image.new("RGB", (self.info.width, self.info.height), (0, 0, 0)))
+        # Always paint black on sleep, whatever the method reported: a panel that ignores the
+        # blank request would otherwise keep the last frame and look frozen.
+        if blank:
+            self.blit(Image.new("RGB", (self.info.width, self.info.height), (0, 0, 0)))
         return note
 
 

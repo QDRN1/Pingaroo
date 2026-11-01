@@ -544,7 +544,7 @@ class Renderer:
             rows.append(("Storage error", storage["last_error"], RED))
         rows.append(("Display", v(extra.get("display")), TEXT))
         rows.append(("Touch", v(extra.get("touch")), TEXT))
-        rows.append(("Screen sleep", v(extra.get("sleep")), TEXT))
+        rows.append(("Screen dim / sleep", v(extra.get("sleep")), TEXT))
         rows.append(("Config file", v(extra.get("config_path")), TEXT))
         rows.append(("Version", v(extra.get("version")), TEXT))
         return rows
