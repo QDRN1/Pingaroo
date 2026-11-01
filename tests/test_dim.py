@@ -35,18 +35,18 @@ class Levels(unittest.TestCase):
     def test_day_active_full(self):
         self.assertEqual(brightness_level(0, parse_hhmm("12:00"), DISP), 1.0)
 
-    def test_day_idle_half(self):
-        self.assertEqual(brightness_level(60, parse_hhmm("12:00"), DISP), 0.5)
+    def test_day_idle_quarter(self):
+        self.assertEqual(brightness_level(60, parse_hhmm("12:00"), DISP), 0.25)
         self.assertEqual(brightness_level(59, parse_hhmm("12:00"), DISP), 1.0)
 
-    def test_night_active_half_idle_quarter(self):
-        self.assertEqual(brightness_level(0, parse_hhmm("21:34"), DISP), 0.5)
-        self.assertEqual(brightness_level(60, parse_hhmm("21:34"), DISP), 0.25)
+    def test_night_active_quarter_idle_five(self):
+        self.assertEqual(brightness_level(0, parse_hhmm("21:34"), DISP), 0.25)
+        self.assertEqual(brightness_level(60, parse_hhmm("21:34"), DISP), 0.05)
 
     def test_dim_disabled(self):
         d = dict(DISP, dim_after_seconds=0)
         self.assertEqual(brightness_level(9999, parse_hhmm("12:00"), d), 1.0)
-        self.assertEqual(brightness_level(9999, parse_hhmm("23:00"), d), 0.5)
+        self.assertEqual(brightness_level(9999, parse_hhmm("23:00"), d), 0.25)
 
 
 class Apply(unittest.TestCase):
@@ -54,6 +54,7 @@ class Apply(unittest.TestCase):
         img = Image.new("RGB", (4, 4), (200, 100, 0))
         self.assertEqual(apply_brightness(img, 0.5).getpixel((0, 0)), (100, 50, 0))
         self.assertEqual(apply_brightness(img, 0.25).getpixel((0, 0)), (50, 25, 0))
+        self.assertEqual(apply_brightness(img, 0.05).getpixel((0, 0)), (10, 5, 0))
         self.assertIs(apply_brightness(img, 1.0), img)
 
 
