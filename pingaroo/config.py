@@ -84,7 +84,7 @@ DEFAULTS: dict[str, Any] = {
         "night_start": "20:00",       # local time window with lower brightness
         "night_end": "06:00",
         "night_level": 0.25,          # active brightness at night
-        "night_dim_level": 0.08,      # idle brightness at night
+        "night_dim_level": 0.11,      # idle brightness at night
         "sleep_seconds": 0,           # full blank after this many idle seconds; 0 = never
         "font": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "font_bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",

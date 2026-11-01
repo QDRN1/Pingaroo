@@ -18,7 +18,7 @@ from . import clock, netinfo
 from .router import ROUTER_COLUMNS
 
 CSV_COLUMNS = [
-    "session_id", "cycle_id", "label", "start_time", "end_time", "duration_s", "status",
+    "session_id", "cycle_id", "label", "target", "start_time", "end_time", "duration_s", "status",
     "failed_stage", "error", "next_attempt_time", "clock_synced", "interface", "ssid", "bssid",
     "local_ip", "gateway", "signal_dbm", "band", "channel", "link_rate_mbps",
     "dns_ok", "dns_server", "dns_ms", "https_ok", "https_url", "https_status", "https_ms",
@@ -71,6 +71,23 @@ class Storage:
         self.status.free_mb = round(free, 1) if free is not None else None
         self.status.low_disk = free is not None and free < self.low_disk_mb
 
+    def _rotate_on_header_change(self, path: str, header: str) -> None:
+        """A CSV written by an older column set is rotated aside, so new rows never land
+        under a header that does not describe them.  Exports read rotated files too."""
+        try:
+            with open(path, encoding="utf-8") as fh:
+                first = fh.readline()
+        except OSError:
+            return
+        if not first or first.strip() == header.strip():
+            return
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        base, ext = os.path.splitext(path)
+        try:
+            os.replace(path, f"{base}.{stamp}{ext}")
+        except OSError:
+            pass
+
     def _rotate(self, path: str, max_bytes: int) -> None:
         try:
             size = os.path.getsize(path)
@@ -97,6 +114,8 @@ class Storage:
                 return False
             try:
                 self._rotate(path, max_bytes)
+                if header:
+                    self._rotate_on_header_change(path, header)
                 new_file = not os.path.exists(path) or os.path.getsize(path) == 0
                 fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
                 try:

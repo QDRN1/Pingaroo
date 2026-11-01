@@ -247,6 +247,9 @@ class StartHonorsCurrentNetwork(unittest.TestCase):
             self.assertEqual(h.state.active_target, "home")
             self.assertTrue(wait_until(lambda: len(h.rows()) >= 1, 5))
             self.assertEqual(h.rows()[0]["ssid"], "LAN Down Under")
+            # Home cycles are labelled Home (no APN under test) and carry target=home for filtering.
+            self.assertEqual(h.rows()[0]["label"], "Home")
+            self.assertEqual(h.rows()[0]["target"], "home")
         finally:
             h.close()
 

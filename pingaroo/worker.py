@@ -357,13 +357,15 @@ class Worker:
             session.cycles += 1
             cycle_id = f"{session.id}-{session.cycles:04d}"
             st.current_cycle_id = cycle_id
-            label = st.label_override or config_mod.read_label(cfg)
+            target = st.active_target
+            # On the home network there is no APN under test: the row says Home, not the test label.
+            label = "Home" if target == "home" else (st.label_override or config_mod.read_label(cfg))
             st.label = label
             st.clock_synced = clock.clock_synced()
             st.last_error = ""
         self.cycle_running = True
         row: dict = {
-            "session_id": session.id, "cycle_id": cycle_id, "label": label,
+            "session_id": session.id, "cycle_id": cycle_id, "label": label, "target": target,
             "start_time": start_iso, "status": "", "failed_stage": "", "error": "",
             "clock_synced": st.clock_synced, "interface": iface,
         }
@@ -371,7 +373,7 @@ class Worker:
         self.storage.write_marker({"cycle_id": cycle_id, "start_time": start_iso, "label": label,
                                    "session_id": session.id})
         self.storage.write_event("cycle_start", cycle_id=cycle_id, session_id=session.id, label=label,
-                                 interface=iface, clock_synced=st.clock_synced)
+                                 target=target, interface=iface, clock_synced=st.clock_synced)
 
         def finish(status: str, stage: str, error: str, speed: dict | None = None) -> float:
             end_mono = time.monotonic()

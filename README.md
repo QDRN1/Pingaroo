@@ -237,7 +237,7 @@ which network the loop tests, between the router under test and the home network
 without stopping the loop.
 
 The screen dims to 25% after 60 s without a touch, and between 20:00 and 06:00 local
-time it runs at 25% (8% when idle). Dimming is done in software because the SPI panel
+time it runs at 25% (11% when idle). Dimming is done in software because the SPI panel
 has no backlight control; the screen keeps updating while dim and any tap restores full
 brightness and acts normally. A full blank (`display.sleep_seconds`) is off by default;
 when enabled, the first touch only wakes it. Testing, logging and Wi-Fi are unaffected by sleep. If the panel

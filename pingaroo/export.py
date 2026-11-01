@@ -94,7 +94,7 @@ def write_xlsx(rows: list[dict], path: str, title: str = "Pingaroo results") -> 
         ws.append([(_num(r.get(c)) if c in NUMERIC else r.get(c, "")) for c in CSV_COLUMNS])
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
-    widths = {"start_time": 26, "end_time": 26, "error": 48, "cycle_id": 26, "session_id": 22, "label": 16,
+    widths = {"start_time": 26, "end_time": 26, "error": 48, "cycle_id": 26, "session_id": 22, "label": 16, "target": 8,
               "status": 20, "result_url": 50, "server_name": 20, "server_location": 26, "https_url": 40}
     for idx, col in enumerate(CSV_COLUMNS, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = widths.get(col, max(10, min(18, len(col) + 2)))

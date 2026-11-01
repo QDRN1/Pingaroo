@@ -41,7 +41,7 @@ class Levels(unittest.TestCase):
 
     def test_night_active_quarter_idle_five(self):
         self.assertEqual(brightness_level(0, parse_hhmm("21:34"), DISP), 0.25)
-        self.assertEqual(brightness_level(60, parse_hhmm("21:34"), DISP), 0.08)
+        self.assertEqual(brightness_level(60, parse_hhmm("21:34"), DISP), 0.11)
 
     def test_dim_disabled(self):
         d = dict(DISP, dim_after_seconds=0)
@@ -54,7 +54,7 @@ class Apply(unittest.TestCase):
         img = Image.new("RGB", (4, 4), (200, 100, 0))
         self.assertEqual(apply_brightness(img, 0.5).getpixel((0, 0)), (100, 50, 0))
         self.assertEqual(apply_brightness(img, 0.25).getpixel((0, 0)), (50, 25, 0))
-        self.assertEqual(apply_brightness(img, 0.08).getpixel((0, 0)), (16, 8, 0))
+        self.assertEqual(apply_brightness(img, 0.11).getpixel((0, 0)), (22, 11, 0))
         self.assertIs(apply_brightness(img, 1.0), img)
 
 

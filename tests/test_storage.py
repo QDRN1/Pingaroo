@@ -91,3 +91,27 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(wb.sheetnames, ["Results", "Summary by Label", "About"])
             self.assertEqual(wb["Results"].max_row, 4)
             self.assertEqual(wb["Summary by Label"].max_row, 3)
+
+
+class HeaderChangeRotation(unittest.TestCase):
+    def test_old_header_file_is_rotated_aside(self):
+        import tempfile, os, csv
+        from pingaroo.config import DEFAULTS
+        import copy
+        with tempfile.TemporaryDirectory() as d:
+            cfg = copy.deepcopy(DEFAULTS)
+            cfg["logging"]["directory"] = d
+            cfg["logging"]["runtime_directory"] = os.path.join(d, "run")
+            path = os.path.join(d, "results.csv")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("session_id,cycle_id,label\nS,S-1,Old\n")
+            s = Storage(cfg)
+            self.assertTrue(s.write_result_row({"cycle_id": "S-2", "label": "New", "target": "test", "status": "SUCCESS"}))
+            with open(path, newline="", encoding="utf-8") as fh:
+                rows = list(csv.reader(fh))
+            self.assertEqual(rows[0], CSV_COLUMNS)
+            self.assertEqual(len(rows), 2)
+            rotated = [f for f in os.listdir(d) if f.startswith("results.") and f.endswith(".csv") and f != "results.csv"]
+            self.assertEqual(len(rotated), 1)
+            with open(os.path.join(d, rotated[0]), encoding="utf-8") as fh:
+                self.assertEqual(fh.readline().strip(), "session_id,cycle_id,label")
