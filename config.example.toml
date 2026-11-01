@@ -88,7 +88,7 @@ dim_level = 0.25            # idle brightness by day (0..1)
 night_start = "20:00"       # local-time window with lower brightness
 night_end = "06:00"
 night_level = 0.25          # active brightness at night
-night_dim_level = 0.05      # idle brightness at night
+night_dim_level = 0.08      # idle brightness at night
 # Full blank this many seconds after the last touch. 0 (default) never blanks.
 sleep_seconds = 0
 font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
