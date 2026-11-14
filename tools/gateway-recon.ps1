@@ -116,10 +116,10 @@ function Protect-Text([string]$text) {
 
 $session = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
 
-function Get-Gw([string]$path, [string]$method = 'Get', [string]$body = $null) {
+function Get-Gw([string]$path, [string]$method = 'Get', [string]$body = $null, [int]$timeoutSec = 8) {
     $u = "http://$Gateway/" + $path.TrimStart('/')
     $iwr = @{
-        Uri = $u; Method = $method; TimeoutSec = 8; WebSession = $session
+        Uri = $u; Method = $method; TimeoutSec = $timeoutSec; WebSession = $session
         SkipHttpErrorCheck = $true; NoProxy = $true; ErrorAction = 'Stop'
         Headers = @{ 'X-Requested-With' = 'XMLHttpRequest' }
     }
@@ -244,11 +244,12 @@ try {
         if ($seen.Add($p)) { $queue.Enqueue($p) }
     }
     foreach ($p in 'login.html', 'index.html', 'home.html', 'script/common.js', 'script/login.js', 'script/index.js',
-        'script/home.js', 'js/functions.js', 'translate/en.js') { Add-GwPath $p }
+        'script/home.js', 'js/functions.js', 'translate/en.js', 'list_sidebar.html', 'basic_sidebar.html',
+        'advanced_sidebar.html', 'expert_sidebar.html', 'setup_sidebar.html') { Add-GwPath $p }
     $fetched = 0
     $saved = 0
     function Invoke-Drain {
-        while ($queue.Count -gt 0 -and (Get-Date) -lt $deadline -and $script:fetched -lt 2500) {
+        while ($queue.Count -gt 0 -and (Get-Date) -lt $deadline -and $script:fetched -lt 6000) {
             $p = $queue.Dequeue()
             $r = Get-Gw $p
             $script:fetched++
@@ -269,6 +270,7 @@ try {
                 Add-GwPath $m.Groups[1].Value
                 if ($dir) { Add-GwPath ($dir + $m.Groups[1].Value) }
             }
+            foreach ($m in [regex]::Matches($r.Text, 'data-bs-module\s*=\s*["'']([\w\-]+)["'']')) { Add-GwPath ($m.Groups[1].Value + '_sidebar.html') }
             foreach ($m in [regex]::Matches($r.Text, 'path\s*:\s*["''](\w+)["'']')) { [void]$apiNames.Add($m.Groups[1].Value) }
             foreach ($m in [regex]::Matches($r.Text, '(?i)(?:module|id|data-page|data-module)\s*=\s*["'']([a-z][\w\-]{1,40})["'']')) { [void]$tokens.Add($m.Groups[1].Value) }
             foreach ($m in [regex]::Matches($r.Text, '["'']/([a-z][\w\-]{1,30})/["'']\s*:')) { [void]$dirs.Add($m.Groups[1].Value) }
@@ -278,36 +280,142 @@ try {
     Invoke-Drain
     Log "crawl pass 1: fetched $fetched, saved $saved, API names $($apiNames.Count), menu tokens $($tokens.Count)"
 
-    # ---- 3. the menu builds page paths in code, so also try module/<section>/<page>.html
-    foreach ($d in 'lte', 'wan', 'network', 'internet', 'mobile', 'cellular', 'basic', 'advanced', 'system', 'management',
-        'status_info', 'wlan', 'lan', 'security', 'home', 'opera', 'wizard') { [void]$dirs.Add($d) }
-    foreach ($t in 'apn', 'apn_setting', 'apn_settings', 'lte', 'lte_setting', 'lte_basic', 'basic_setting', 'profile',
-        'profiles', 'mobile', 'cellular', 'internet', 'dial', 'connection', 'wan_setting', 'network_setting') { [void]$tokens.Add($t) }
-    $ordered = @($tokens | Sort-Object { if ($_ -match '(?i)apn|lte|cell|mobile|wan|internet|profile|dial|network|basic|setting') { 0 } else { 1 } }, { $_ })
-    $ordered = @($ordered | Select-Object -First 90)
-    foreach ($t in $ordered) {
+    # ---- 3. the menu builds page paths in code (module/<first>/<second>/<third>.html), so try the
+    #         page tree named in this firmware's language file, then sidebar ids under each section
+    $knownPages = @(
+        'module/network/celllock.html', 'module/network/celllock/celllock.html', 'module/celllock.html', 'module/network/wan.html',
+        'module/network/wan/wan.html', 'module/wan.html', 'module/network/wan/internet.html', 'module/wan/internet.html',
+        'module/network/wan/ddns.html', 'module/wan/ddns.html', 'module/network/wan/upnp.html', 'module/wan/upnp.html',
+        'module/network/wan/port_trigger.html', 'module/wan/port_trigger.html', 'module/network/wan/port_forward.html', 'module/wan/port_forward.html',
+        'module/network/wan/dmz.html', 'module/wan/dmz.html', 'module/network/wan/nat_passthrough.html', 'module/wan/nat_passthrough.html',
+        'module/network/wan/mac_sec.html', 'module/wan/mac_sec.html', 'module/network/multiwan.html', 'module/network/multiwan/multiwan.html',
+        'module/multiwan.html', 'module/network/lte.html', 'module/network/lte/lte.html', 'module/lte.html',
+        'module/network/lte/lteview.html', 'module/lte/lteview.html', 'module/network/lteview.html', 'module/network/lte/network_select.html',
+        'module/lte/network_select.html', 'module/network/network_select.html', 'module/network/lte/multi_apn.html', 'module/lte/multi_apn.html',
+        'module/network/multi_apn.html', 'module/network/lte/antenna.html', 'module/lte/antenna.html', 'module/network/antenna.html',
+        'module/network/wlan/antenna.html', 'module/wlan/antenna.html', 'module/parentalcontrol/urlfilters.html', 'module/parentalcontrol/urlfilters/urlfilters.html',
+        'module/urlfilters.html', 'module/parentalcontrol/keywordfilters.html', 'module/parentalcontrol/keywordfilters/keywordfilters.html', 'module/keywordfilters.html',
+        'module/parentalcontrol/servicefilters.html', 'module/parentalcontrol/servicefilters/servicefilters.html', 'module/servicefilters.html', 'module/security/ipv4/net_service_filter.html',
+        'module/ipv4/net_service_filter.html', 'module/security/net_service_filter.html', 'module/system/systemcfg.html', 'module/system/systemcfg/systemcfg.html',
+        'module/systemcfg.html', 'module/system/reboot.html', 'module/system/reboot/reboot.html', 'module/reboot.html',
+        'module/dashboard/home.html', 'module/dashboard/home/home.html', 'module/home.html', 'module/dashboard/guestwifi.html',
+        'module/dashboard/guestwifi/guestwifi.html', 'module/guestwifi.html', 'module/dashboard/status.html', 'module/dashboard/status/status.html',
+        'module/status.html', 'module/dashboard/wps.html', 'module/dashboard/wps/wps.html', 'module/wps.html',
+        'module/dashboard/connected_devices.html', 'module/dashboard/connected_devices/connected_devices.html', 'module/connected_devices.html', 'module/dashboard/mesh_topology.html',
+        'module/dashboard/mesh_topology/mesh_topology.html', 'module/mesh_topology.html', 'module/dashboard/sysInfo.html', 'module/dashboard/sysInfo/sysInfo.html',
+        'module/sysInfo.html', 'module/dashboard/installwizard.html', 'module/dashboard/installwizard/installwizard.html', 'module/installwizard.html',
+        'module/network/dhcp_lease.html', 'module/network/dhcp_lease/dhcp_lease.html', 'module/dhcp_lease.html', 'module/network/status.html',
+        'module/network/status/status.html', 'module/network/traffic_query.html', 'module/network/traffic_query/traffic_query.html', 'module/traffic_query.html',
+        'module/network/status_info.html', 'module/network/status_info/status_info.html', 'module/status_info.html', 'module/network/internet.html',
+        'module/network/ddns.html', 'module/network/upnp.html', 'module/network/port_trigger.html', 'module/network/port_forward.html',
+        'module/network/dmz.html', 'module/network/nat_passthrough.html', 'module/network/mac_sec.html', 'module/network/lan.html',
+        'module/network/lan/lan.html', 'module/lan.html', 'module/network/lan/lanip.html', 'module/lan/lanip.html',
+        'module/network/lanip.html', 'module/network/lan/ipv6.html', 'module/lan/ipv6.html', 'module/network/ipv6.html',
+        'module/network/lan/ipv6info.html', 'module/lan/ipv6info.html', 'module/network/ipv6info.html', 'module/network/lan/devlist.html',
+        'module/lan/devlist.html', 'module/network/devlist.html', 'module/network/lan/dhcp_lease.html', 'module/lan/dhcp_lease.html',
+        'module/network/wlan.html', 'module/network/wlan/wlan.html', 'module/wlan.html', 'module/network/wlan/general.html',
+        'module/wlan/general.html', 'module/network/general.html', 'module/network/wlan/wps.html', 'module/wlan/wps.html',
+        'module/network/wps.html', 'module/network/wlan/acl.html', 'module/wlan/acl.html', 'module/network/acl.html',
+        'module/network/wlan/radio.html', 'module/wlan/radio.html', 'module/network/radio.html', 'module/network/wlan/guest.html',
+        'module/wlan/guest.html', 'module/network/guest.html', 'module/network/wlan/advanced.html', 'module/wlan/advanced.html',
+        'module/network/advanced.html', 'module/network/wlan/bandsteering.html', 'module/wlan/bandsteering.html', 'module/network/bandsteering.html',
+        'module/network/wlan/dfs_switch.html', 'module/wlan/dfs_switch.html', 'module/network/dfs_switch.html', 'module/network/wlan/ieee_1905.html',
+        'module/wlan/ieee_1905.html', 'module/network/ieee_1905.html', 'module/network/wlan/fast_roaming.html', 'module/wlan/fast_roaming.html',
+        'module/network/fast_roaming.html', 'module/network/wlan/mesh.html', 'module/wlan/mesh.html', 'module/network/mesh.html',
+        'module/network/mesh/mesh.html', 'module/mesh.html', 'module/network/mesh/mesh_basic.html', 'module/mesh/mesh_basic.html',
+        'module/network/mesh_basic.html', 'module/network/mesh/mesh_status.html', 'module/mesh/mesh_status.html', 'module/network/mesh_status.html',
+        'module/network/mesh/mesh_search.html', 'module/mesh/mesh_search.html', 'module/network/mesh_search.html', 'module/network/ipv6/ipv6.html',
+        'module/ipv6.html', 'module/network/multicast.html', 'module/network/multicast/multicast.html', 'module/multicast.html',
+        'module/network/routing.html', 'module/network/routing/routing.html', 'module/routing.html', 'module/network/routing/static_routing.html',
+        'module/routing/static_routing.html', 'module/network/static_routing.html', 'module/network/routing/dynamic_routing.html', 'module/routing/dynamic_routing.html',
+        'module/network/dynamic_routing.html', 'module/network/extender.html', 'module/network/extender/extender.html', 'module/extender.html',
+        'module/network/ip_passthrough.html', 'module/network/ip_passthrough/ip_passthrough.html', 'module/ip_passthrough.html', 'module/parentalcontrol/devices.html',
+        'module/parentalcontrol/devices/devices.html', 'module/devices.html', 'module/services/usb_overview.html', 'module/services/usb_overview/usb_overview.html',
+        'module/usb_overview.html', 'module/security/ipv4.html', 'module/security/ipv4/ipv4.html', 'module/ipv4.html',
+        'module/security/ipv4/ipv4_common.html', 'module/ipv4/ipv4_common.html', 'module/security/ipv4_common.html', 'module/security/ipv4/client_acl.html',
+        'module/ipv4/client_acl.html', 'module/security/client_acl.html', 'module/security/ipv6.html', 'module/security/ipv6/ipv6.html',
+        'module/security/ipv6/ipv6_common.html', 'module/ipv6/ipv6_common.html', 'module/security/ipv6_common.html', 'module/security/ipv6/ipv6_firewall.html',
+        'module/ipv6/ipv6_firewall.html', 'module/security/ipv6_firewall.html', 'module/security/vpn.html', 'module/security/vpn/vpn.html',
+        'module/vpn.html', 'module/security/vpn/pptp_vpn_server.html', 'module/vpn/pptp_vpn_server.html', 'module/security/pptp_vpn_server.html',
+        'module/security/vpn/openvpn_server.html', 'module/vpn/openvpn_server.html', 'module/security/openvpn_server.html', 'module/security/vpn/vpn_client.html',
+        'module/vpn/vpn_client.html', 'module/security/vpn_client.html', 'module/qos/airtime_fairness.html', 'module/qos/airtime_fairness/airtime_fairness.html',
+        'module/airtime_fairness.html', 'module/qos/atf.html', 'module/qos/atf/atf.html', 'module/atf.html',
+        'module/qos/common.html', 'module/qos/common/common.html', 'module/common.html', 'module/qos/queue.html',
+        'module/qos/queue/queue.html', 'module/queue.html', 'module/qos/classification.html', 'module/qos/classification/classification.html',
+        'module/classification.html', 'module/qos/quene.html', 'module/qos/quene/quene.html', 'module/quene.html',
+        'module/qos/smart.html', 'module/qos/smart/smart.html', 'module/smart.html', 'module/qos/802_11_tos.html',
+        'module/qos/802_11_tos/802_11_tos.html', 'module/802_11_tos.html', 'module/qos/speed_limit.html', 'module/qos/speed_limit/speed_limit.html',
+        'module/speed_limit.html', 'module/qos/iptv.html', 'module/qos/iptv/iptv.html', 'module/iptv.html',
+        'module/qos/remarking_wmm.html', 'module/qos/remarking_wmm/remarking_wmm.html', 'module/remarking_wmm.html', 'module/qos/prioritzation.html',
+        'module/qos/prioritzation/prioritzation.html', 'module/prioritzation.html', 'module/qos/prioritzation/ssid.html', 'module/prioritzation/ssid.html',
+        'module/qos/ssid.html', 'module/qos/prioritzation/server.html', 'module/prioritzation/server.html', 'module/qos/server.html',
+        'module/qos/prioritzation/client.html', 'module/prioritzation/client.html', 'module/qos/client.html', 'module/qos/prioritzation/application.html',
+        'module/prioritzation/application.html', 'module/qos/application.html', 'module/diagnostic/diagnostic.html', 'module/diagnostic/diagnostic/diagnostic.html',
+        'module/diagnostic.html', 'module/system/powersaving.html', 'module/system/powersaving/powersaving.html', 'module/powersaving.html',
+        'module/system/config.html', 'module/system/config/config.html', 'module/config.html', 'module/system/firmware.html',
+        'module/system/firmware/firmware.html', 'module/firmware.html', 'module/system/log.html', 'module/system/log/log.html',
+        'module/log.html', 'module/system/tr069.html', 'module/system/tr069/tr069.html', 'module/tr069.html',
+        'module/sms/new_msg.html', 'module/sms/new_msg/new_msg.html', 'module/new_msg.html', 'module/sms/inbox.html',
+        'module/sms/inbox/inbox.html', 'module/inbox.html', 'module/sms/outbox.html', 'module/sms/outbox/outbox.html',
+        'module/outbox.html', 'module/sms/drafts.html', 'module/sms/drafts/drafts.html', 'module/drafts.html',
+        'module/sms/sms_settings.html', 'module/sms/sms_settings/sms_settings.html', 'module/sms_settings.html', 'module/status_info/wireless.html',
+        'module/status_info/wireless/wireless.html', 'module/wireless.html', 'module/status_info/wireless/tip.html', 'module/wireless/tip.html',
+        'module/status_info/tip.html', 'module/status_info/dhcp_lease.html', 'module/status_info/dhcp_lease/dhcp_lease.html', 'module/status_info/dhcp_lease/tip.html',
+        'module/dhcp_lease/tip.html', 'module/status_info/route_table.html', 'module/status_info/route_table/route_table.html', 'module/route_table.html',
+        'module/status_info/route_table/tip.html', 'module/route_table/tip.html', 'module/status_info/port_forwarding.html', 'module/status_info/port_forwarding/port_forwarding.html',
+        'module/port_forwarding.html', 'module/status_info/port_forwarding/tip.html', 'module/port_forwarding/tip.html', 'module/status_info/connection_list.html',
+        'module/status_info/connection_list/connection_list.html', 'module/connection_list.html', 'module/status_info/connection_list/tip.html', 'module/connection_list/tip.html',
+        'module/status_info/snooping_table.html', 'module/status_info/snooping_table/snooping_table.html', 'module/snooping_table.html', 'module/status_info/snooping_table/tip.html',
+        'module/snooping_table/tip.html', 'module/status_info/current_users.html', 'module/status_info/current_users/current_users.html', 'module/current_users.html',
+        'module/status_info/current_users/tip.html', 'module/current_users/tip.html', 'module/status_info/blocked_users.html', 'module/status_info/blocked_users/blocked_users.html',
+        'module/blocked_users.html', 'module/status_info/blocked_users/tip.html', 'module/blocked_users/tip.html', 'module/status_info/mesh_info.html',
+        'module/status_info/mesh_info/mesh_info.html', 'module/mesh_info.html', 'module/opera/opera_common.html', 'module/opera/opera_common/opera_common.html',
+        'module/opera_common.html', 'module/opera/lanIp.html', 'module/opera/lanIp/lanIp.html', 'module/lanIp.html',
+        'module/opera/lanIp/tip.html', 'module/lanIp/tip.html', 'module/opera/tip.html', 'module/opera/wlan_list.html',
+        'module/opera/wlan_list/wlan_list.html', 'module/wlan_list.html', 'module/opera/wlan_list/tip.html', 'module/wlan_list/tip.html',
+        'module/opera/conntype.html', 'module/opera/conntype/conntype.html', 'module/conntype.html', 'module/opera/conntype/tip.html',
+        'module/conntype/tip.html', 'module/opera/step2.html', 'module/opera/step2/step2.html', 'module/step2.html',
+        'module/opera/step2/tip.html', 'module/step2/tip.html', 'module/opera/step3.html', 'module/opera/step3/step3.html',
+        'module/step3.html', 'module/opera/step3/tip.html', 'module/step3/tip.html', 'module/management/access.html',
+        'module/management/access/access.html', 'module/access.html', 'module/management/issuelog.html', 'module/management/issuelog/issuelog.html',
+        'module/issuelog.html', 'module/management/tcpdump.html', 'module/management/tcpdump/tcpdump.html', 'module/tcpdump.html',
+        'module/management/tr069.html', 'module/management/tr069/tr069.html', 'module/management/wifi_certification.html', 'module/management/wifi_certification/wifi_certification.html',
+        'module/wifi_certification.html'
+    )
+    foreach ($p in $knownPages) { Add-GwPath $p }
+    Invoke-Drain
+    Log "crawl pass 2 (known pages): fetched $fetched, saved $saved, API names $($apiNames.Count)"
+    $sections = 'network', 'security', 'system', 'dashboard', 'management', 'status_info', 'qos', 'services',
+        'parentalcontrol', 'sms', 'diagnostic', 'opera'
+    $subs = 'lte', 'wan', 'lan', 'wlan', 'multiwan', 'ipv4', 'ipv6', 'vpn'
+    foreach ($t in @($tokens | Select-Object -First 150)) {
         Add-GwPath "module/$t.html"
-        Add-GwPath "module/$t/$t.html"
-        Add-GwPath "script/$t.js"
-        Add-GwPath "script/module/$t.js"
-        foreach ($d in $dirs) { Add-GwPath "module/$d/$t.html"; Add-GwPath "script/$d/$t.js" }
+        foreach ($sec in $sections) { Add-GwPath "module/$sec/$t.html" }
+        foreach ($sub in $subs) { Add-GwPath "module/network/$sub/$t.html"; Add-GwPath "module/security/$sub/$t.html" }
     }
     Invoke-Drain
-    Log "crawl pass 2: fetched $fetched, saved $saved, API names $($apiNames.Count)"
+    Log "crawl pass 3 (sidebar ids): fetched $fetched, saved $saved, API names $($apiNames.Count)"
     Set-Content -Path (Join-Path $outDir 'api-names.txt') -Value (@($apiNames | Sort-Object) -join "`n") -Encoding UTF8
 
     # ---- 4. read-only status calls, then log out
     if ($loggedIn) {
         $always = 'GetLoginStatus', 'GetConfigStatus', 'GetLTEBasicSetting', 'GetLTEStatus', 'GetENDCInfo', 'GetWanIp', 'GetNvInfo'
         $skip = '(?i)fota|upgrade|reboot|reset|restore|factory|scan|speed|diag|ping|trace|backup|export|download|upload|log$'
-        $gets = @($always) + @($apiNames | Where-Object { $_ -cmatch '^Get' -and $_ -notmatch $skip } | Sort-Object)
-        $gets = @($gets | Select-Object -Unique | Select-Object -First 160)
+        $all = @($always) + @($apiNames | Where-Object { $_ -cmatch '^Get' -and $_ -notmatch $skip } | Sort-Object)
+        $all = @($all | Select-Object -Unique)
+        $cell = '(?i)apn|profile|lte|sim|cell|band|wan|net|endc|antenna|mobile'
+        $gets = @($all | Where-Object { $_ -match $cell }) + @($all | Where-Object { $_ -notmatch $cell })
+        $gets = @($gets | Select-Object -First 200)
         $n = 0
-        $apiDeadline = (Get-Date).AddSeconds(60)
+        $apiDeadline = (Get-Date).AddSeconds(80)
         foreach ($name in $gets) {
-            if ((Get-Date) -ge $apiDeadline) { Log "status reads stopped at time budget"; break }
-            $g = Get-Gw "cgi-bin/$name"
-            Set-Content -Path (Join-Path $apiDir "$name.json") -Value ("HTTP $($g.Status)`n" + (Protect-Text $g.Text)) -Encoding UTF8
+            if ((Get-Date) -ge $apiDeadline) { Log "status reads stopped at time budget after $n of $($gets.Count)"; break }
+            $wait = 8
+            if ($name -match $cell) { $wait = 20 }
+            $t0 = Get-Date
+            $g = Get-Gw "cgi-bin/$name" 'Get' $null $wait
+            $ms = [int]((Get-Date) - $t0).TotalMilliseconds
+            Set-Content -Path (Join-Path $apiDir "$name.json") -Value ("HTTP $($g.Status)  ${ms} ms`n" + (Protect-Text $g.Text)) -Encoding UTF8
             $n++
         }
         Log "status reads saved: $n"
