@@ -104,6 +104,33 @@ function Test-Tcp([string]$hostName, [int]$port, [int]$ms = 3000) {
     } catch { return $false } finally { $c.Dispose() }
 }
 
+function Test-Internet {
+    # Does the GATEWAY have working internet? Run while joined to its Wi-Fi.  Read-only:
+    # these are ordinary client requests to public hosts, bound to the Wi-Fi like the Pi does.
+    $out = [ordered]@{}
+    # DNS
+    try { $a = [System.Net.Dns]::GetHostAddresses('www.cloudflare.com'); $out.dns = "ok ($($a.Count) addrs)" } catch { $out.dns = "FAIL: $($_.Exception.Message)" }
+    # TCP 443 to three well-known hosts
+    foreach ($h in '1.1.1.1', '8.8.8.8', 'www.google.com') { $out["tcp443_$h"] = if (Test-Tcp $h 443 3000) { 'ok' } else { 'FAIL' } }
+    # small HTTPS GET + throughput sample (10 MB from Cloudflare)
+    foreach ($u in 'https://www.google.com/generate_204', 'https://1.1.1.1/') {
+        try {
+            $t0 = Get-Date
+            $r = Invoke-WebRequest -Uri $u -TimeoutSec 10 -NoProxy -SkipHttpErrorCheck -MaximumRedirection 2 -ErrorAction Stop
+            $out["https $u"] = "HTTP $([int]$r.StatusCode) in $([int]((Get-Date)-$t0).TotalMilliseconds) ms"
+        } catch { $out["https $u"] = "FAIL: $($_.Exception.Message)" }
+    }
+    try {
+        $t0 = Get-Date
+        $r = Invoke-WebRequest -Uri 'https://speed.cloudflare.com/__down?bytes=10000000' -TimeoutSec 25 -NoProxy -SkipHttpErrorCheck -ErrorAction Stop
+        $bytes = 0; if ($r.RawContentLength -gt 0) { $bytes = $r.RawContentLength } elseif ($r.Content) { $bytes = ([byte[]]$r.Content).Length }
+        $sec = ((Get-Date) - $t0).TotalSeconds
+        if ($sec -gt 0 -and $bytes -gt 0) { $out.download = "{0:N1} Mbps ({1:N1} MB in {2:N1}s)" -f (($bytes*8)/($sec*1e6)), ($bytes/1MB), $sec }
+        else { $out.download = "HTTP $([int]$r.StatusCode), $bytes bytes" }
+    } catch { $out.download = "FAIL: $($_.Exception.Message)" }
+    return $out
+}
+
 function Protect-Text([string]$text) {
     # Mask values of sensitive keys in JSON text; key names stay visible.
     $pattern = '"(?<k>[^"]*(?:pass|psk|key|imei|imsi|iccid|msisdn|session|token|serial)[^"]*|sn|SN)"\s*:\s*"(?<v>[^"]*)"'
@@ -218,6 +245,12 @@ try {
     if (-not $ok) { throw "gateway $Gateway port 80 not reachable" }
     Log "gateway reachable"
     $deadline = (Get-Date).AddSeconds($BudgetSeconds)
+
+    # ---- 0. does the gateway have internet right now?  (read-only, public hosts)
+    Log "internet check through the gateway..."
+    $inet = Test-Internet
+    $inet | ConvertTo-Json | Set-Content -Path (Join-Path $outDir 'internet-check.json') -Encoding UTF8
+    foreach ($k in $inet.Keys) { Log "  net  $k : $($inet[$k])" }
 
     # ---- 1. optional login first: the gateway may only serve its pages to a logged-in client
     $loggedIn = $false
@@ -382,6 +415,10 @@ try {
         'module/management/tr069.html', 'module/management/tr069/tr069.html', 'module/management/wifi_certification.html', 'module/management/wifi_certification/wifi_certification.html',
         'module/wifi_certification.html'
     )
+    foreach ($p in 'module/network/lan/lan.html','module/network/lan/dhcp_lease.html',
+        'module/network/lan/devicelist.html','module/network/ip_passthrough.html',
+        'module/security/ipv4/firewall.html','module/network/routing.html',
+        'module/system/configuration.html','module/management/access.html') { Add-GwPath $p }
     foreach ($p in $knownPages) { Add-GwPath $p }
     Invoke-Drain
     Log "crawl pass 2 (known pages): fetched $fetched, saved $saved, API names $($apiNames.Count)"
@@ -396,6 +433,24 @@ try {
     Invoke-Drain
     Log "crawl pass 3 (sidebar ids): fetched $fetched, saved $saved, API names $($apiNames.Count)"
     Set-Content -Path (Join-Path $outDir 'api-names.txt') -Value (@($apiNames | Sort-Object) -join "`n") -Encoding UTF8
+
+    # ---- capability map: which Set/Apply/Reboot/Reset calls exist, and the form fields on each page
+    $setters = @($apiNames | Where-Object { $_ -match '^(Set|Apply|Reboot|Reset|Diagnose|Scan|Start)' } | Sort-Object)
+    Set-Content -Path (Join-Path $outDir 'setters.txt') -Value ($setters -join "`n") -Encoding UTF8
+    Log "changeable (Set/Apply/Reboot/Reset) calls seen: $($setters.Count)"
+    $fieldLines = [System.Collections.Generic.List[string]]::new()
+    Get-ChildItem -Path $siteDir -Recurse -Filter *.html | ForEach-Object {
+        $html = Get-Content $_.FullName -Raw
+        $rel = $_.FullName.Substring($siteDir.Length).TrimStart('\','/')
+        foreach ($m in [regex]::Matches($html, '(?is)<(input|select)\b[^>]*\bid\s*=\s*["'']([^"'']+)["''][^>]*>')) {
+            $tag = $m.Groups[1].Value; $id = $m.Groups[2].Value
+            $type = ''; if ($m.Value -match 'type\s*=\s*["'']([^"'']+)["'']') { $type = $Matches[1] }
+            $ro = if ($m.Value -match 'readonly|disabled') { 'readonly' } else { 'editable' }
+            $fieldLines.Add("$rel`t$tag`t$type`t$ro`t$id")
+        }
+    }
+    Set-Content -Path (Join-Path $outDir 'form-fields.tsv') -Value (($fieldLines | Sort-Object) -join "`n") -Encoding UTF8
+    Log "form fields catalogued: $($fieldLines.Count)"
 
     # ---- 4. read-only status calls, then log out
     if ($loggedIn) {
