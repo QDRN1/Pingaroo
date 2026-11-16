@@ -16,7 +16,7 @@ from tests.fakes import (FakeBackend, connected_state, disconnected_state, good_
 
 class WorkerHarness:
     def __init__(self, backend: FakeBackend, cfg: dict | None = None):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.cfg = cfg or test_config()
         self.cfg["logging"]["directory"] = self.tmp.name
         self.storage = Storage(self.cfg)
@@ -34,6 +34,9 @@ class WorkerHarness:
 
     def close(self):
         self.worker.shutdown()
+        # A cycle or switch thread may still be writing its last event: let it finish
+        # before the temporary directory is removed.
+        wait_until(lambda: not self.worker.cycle_running and not self.state.switching, 5)
         self.tmp.cleanup()
 
 

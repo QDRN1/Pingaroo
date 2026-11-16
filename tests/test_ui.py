@@ -50,6 +50,17 @@ class Layout(unittest.TestCase):
         self.assertNotIn("RSRP", texts)
         self.assertIn("not total cellular usage", texts)
 
+    def test_details_header_shows_the_active_label(self):
+        # Next Label is on the Details screen, so the label must be visible there.
+        scenes = sample_data.sample_snapshot()
+        snap = scenes["success_waiting"]
+        st, ex = sample_data.sample_storage("success_waiting"), sample_data.sample_extra()
+        a = self.r.render_details(dict(snap, label="5GC"), st, ex, 0)[0].crop((88, 4, 250, 28)).tobytes()
+        b = self.r.render_details(dict(snap, label="NRB"), st, ex, 0)[0].crop((88, 4, 250, 28)).tobytes()
+        c = self.r.render_details(dict(snap, label="A Very Long Label Name That Must Not Overflow"), st, ex, 0)[0]
+        self.assertNotEqual(a, b)
+        self.assertEqual(c.size, (480, 320))
+
     def test_previous_result_labelled(self):
         snap = sample_data.sample_snapshot()["testing"]
         self.assertTrue(snap["speed_is_previous"])

@@ -596,7 +596,16 @@ class Renderer:
         draw.rectangle((0, 0, self.w, 32), fill=PANEL)
         draw.line((0, 32, self.w, 32), fill=PANEL_EDGE)
         self._text(draw, (8, 16), "Details", 18, TEXT, bold=True, anchor="lm")
-        self._text(draw, (self.w - 8, 16), f"Page {page + 1}/{pages}   {clock.now().strftime('%b %d %H:%M:%S')}", 13, MUTED, anchor="rm")
+        # Active label chip, same style as the main screen: Next Label lives on this screen,
+        # so the label it changes has to be visible here.
+        label = snap.get("label") or "-"
+        lfont = self.fonts.get(13, True)
+        lw = min(150, int(draw.textlength(label, font=lfont)) + 16)
+        cx = 92
+        draw.rounded_rectangle((cx, 7, cx + lw, 25), radius=9, fill=(70, 52, 14))
+        self._text(draw, (cx + lw // 2, 16), label, 13, AMBER, bold=True, anchor="mm", max_w=lw - 12)
+        self._text(draw, (self.w - 8, 16), f"Page {page + 1}/{pages}   {clock.now().strftime('%b %d %H:%M:%S')}", 13, MUTED,
+                   anchor="rm", max_w=self.w - 8 - (cx + lw + 10))
         y = 38
         for key, value, color in rows[page * self.ROWS_PER_PAGE:(page + 1) * self.ROWS_PER_PAGE]:
             if value == "" and color == AMBER:
