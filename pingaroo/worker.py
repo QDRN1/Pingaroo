@@ -88,6 +88,11 @@ class WorkerState:
         self.switch_note = ""
         self.interval_s = 300.0
         self.active_target = "test"              # which network the loop tests: "test" | "home"
+        # Is the saved gateway password accepted?  unknown | ok | rejected | locked | busy |
+        # unreachable | error | n/a (no router configured, or testing the home network)
+        self.router_login = "unknown"
+        self.router_login_mono: float | None = None
+        self.router_login_detail = ""
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -123,6 +128,9 @@ class WorkerState:
                 "switch_note": self.switch_note,
                 "interval_s": self.interval_s,
                 "active_target": self.active_target,
+                "router_login": self.router_login,
+                "router_login_age_s": (now - self.router_login_mono) if self.router_login_mono is not None else None,
+                "router_login_detail": self.router_login_detail,
             }
 
 
@@ -322,6 +330,7 @@ class Worker:
                 remaining = target - time.monotonic()
                 if remaining <= 0:
                     break
+                self._maybe_check_router_login(remaining)
                 self.cancel.wait(min(remaining, 0.5))
             with self.state.lock:
                 self.state.next_start_mono = None
@@ -450,6 +459,7 @@ class Worker:
             self._fill_router(row, rinfo)
             self.storage.write_event("router_info", cycle_id=cycle_id, ok=not rinfo.get("error"),
                                      error=rinfo.get("error", ""))
+            self._note_router_login(rinfo, "n/a" if target == "home" else None)
 
         # ---- route check: the default path for test traffic must be the Wi-Fi
         route_ok, route_err = self.backend.route_check(iface, list(cfg["connectivity"]["ping_targets"]),
@@ -550,6 +560,40 @@ class Worker:
         with self.state.lock:
             self.state.wifi = wstate
             self.state.wifi_time_mono = time.monotonic()
+
+    def _note_router_login(self, info: dict, forced: str | None = None) -> None:
+        """Record whether the gateway accepted the saved password; log a change once."""
+        state = forced or info.get("login_state") or ("unknown" if info.get("error") else "ok")
+        if state == "none":
+            state = "ok" if not info.get("error") else "unknown"
+        detail = "" if state in ("ok", "n/a") else str(info.get("login_error") or info.get("error") or "")[:160]
+        with self.state.lock:
+            changed = state != self.state.router_login
+            self.state.router_login = state
+            self.state.router_login_mono = time.monotonic()
+            self.state.router_login_detail = detail
+        if changed:
+            self.storage.write_event("router_login", state=state, detail=detail)
+
+    def _maybe_check_router_login(self, remaining: float) -> None:
+        """Between cycles, re-check the gateway login every router.login_check_seconds.
+        Skipped while the password is being rejected, so a wrong password is retried only
+        once per cycle and cannot keep the gateway's failed-login lockout alive."""
+        every = float(self.cfg["router"].get("login_check_seconds", 0) or 0)
+        if every <= 0 or self.cfg["router"]["type"] == "none" or remaining < 30:
+            return
+        with self.state.lock:
+            if self.state.active_target != "test" or self.state.router_login in ("rejected", "locked", "n/a"):
+                return
+            last = self.state.router_login_mono
+        if last is None or time.monotonic() - last < every:
+            return
+        info = self.backend.router_login_check(self.cfg)
+        if info:
+            self._note_router_login(info)
+        else:
+            with self.state.lock:
+                self.state.router_login_mono = time.monotonic()
 
     @staticmethod
     def _fill_router(row: dict, r: dict) -> None:

@@ -38,6 +38,10 @@ class Backend:
         """Cellular/modem data from the router's own interface, {} if not configured."""
         return {}
 
+    def router_login_check(self, cfg: dict) -> dict:
+        """Is the saved router password still accepted?  {} if not configured."""
+        return {}
+
     def activate_profile(self, profile: str, interface: str, timeout: float) -> tuple[bool, str]:
         raise NotImplementedError
 
@@ -85,6 +89,10 @@ class RealBackend(Backend):
     def router_info(self, cfg: dict) -> dict:
         from . import router
         return router.fetch(cfg)
+
+    def router_login_check(self, cfg: dict) -> dict:
+        from . import router
+        return router.check_login(cfg)
 
     def activate_profile(self, profile: str, interface: str, timeout: float) -> tuple[bool, str]:
         from . import shell

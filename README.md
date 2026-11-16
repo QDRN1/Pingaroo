@@ -240,7 +240,21 @@ The screen dims to 25% after 60 s without a touch, and between 20:00 and 06:00 l
 time it runs at 25% (11% when idle). Dimming is done in software because the SPI panel
 has no backlight control; the screen keeps updating while dim and any tap restores full
 brightness and acts normally. A full blank (`display.sleep_seconds`) is off by default;
-when enabled, the first touch only wakes it. Testing, logging and Wi-Fi are unaffected by sleep. If the panel
+when enabled, the first touch only wakes it.
+
+**Router login status.** With a router adapter configured, the Internet row shows
+`Router: Logged In`, or `Router: Logged Out` in orange when the gateway rejects the saved
+password. The login is checked at every cycle and every 10 minutes in between
+(`router.login_check_seconds`), logging straight back out each time. While logged out, a
+full-screen "Router Logged Out" alert appears for one minute every 15 minutes, at full
+brightness by day and at the night level at night, with Dismiss and
+"Don't Notify For 24 Hours". Fix a logout with `sudo pingaroo router-password`.
+`Router: Admin In Use` means someone else holds the gateway's single admin session; it
+does not alert.
+
+**Remote view.** `http://<pi address>:8080` shows the screen live in a browser on the same
+network, and a click on the page acts as a tap on the same spot. There is no login on that
+page; turn it off with `[remote] enabled = false`. Testing, logging and Wi-Fi are unaffected by sleep. If the panel
 has no backlight control, the screen is driven black but the backlight stays lit.
 
 ## After a Crash or Power Loss

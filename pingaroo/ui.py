@@ -27,11 +27,23 @@ AMBER = (250, 184, 48)
 RED = (240, 84, 72)
 BLUE = (92, 160, 250)
 CYAN = (70, 200, 220)
+ORANGE = (255, 140, 40)
 BTN_START = (30, 150, 76)
 BTN_STOP = (196, 52, 46)
 BTN_NEUTRAL = (54, 64, 86)
 BTN_TEXT = (255, 255, 255)
 BAR_BG = (40, 48, 64)
+
+
+# Router login state -> (chip text, colour).  States not listed show no chip.
+ROUTER_LOGIN_CHIP = {
+    "ok": ("Router: Logged In", GREEN),
+    "rejected": ("Router: Logged Out", ORANGE),
+    "locked": ("Router: Logged Out", ORANGE),
+    "busy": ("Router: Admin In Use", MUTED),
+    "unreachable": ("Router: No Answer", MUTED),
+    "error": ("Router: No Answer", MUTED),
+}
 
 
 @dataclass
@@ -285,7 +297,14 @@ class Renderer:
             inet_col = GREEN if ok else RED
         self._icon_globe(draw, 9, y + 1, inet_col)
         self._text(draw, (36, y), "Internet", 15, MUTED)
-        self._text(draw, (102, y), inet_txt, 15, inet_col, bold=True, max_w=370)
+        # Router login chip, right-aligned on this row.  Hidden when not applicable.
+        chip = ROUTER_LOGIN_CHIP.get(snap.get("router_login"))
+        inet_max = 370
+        if chip:
+            cw = int(draw.textlength(chip[0], font=self.fonts.get(12, True)))
+            self._text(draw, (self.w - 8, y + 2), chip[0], 12, chip[1], bold=True, anchor="ra")
+            inet_max = max(120, self.w - 8 - cw - 12 - 102)
+        self._text(draw, (102, y), inet_txt, 15, inet_col, bold=True, max_w=inet_max)
 
         # Results block
         speed = snap.get("last_speed") or {}
@@ -542,6 +561,15 @@ class Renderer:
         rows.append(("Rows / events written", f"{storage.get('rows_written', 0)} / {storage.get('events_written', 0)}", TEXT))
         if storage.get("last_error"):
             rows.append(("Storage error", storage["last_error"], RED))
+        chip = ROUTER_LOGIN_CHIP.get(snap.get("router_login"))
+        if chip or snap.get("router_login") not in (None, "unknown", "n/a"):
+            age = clock.age_text(snap.get("router_login_age_s")) if snap.get("router_login_age_s") is not None else na
+            txt = (chip[0].replace("Router: ", "") if chip else str(snap.get("router_login"))) + f"  (checked {age})"
+            if snap.get("router_login_detail"):
+                txt += "  " + str(snap["router_login_detail"])
+            rows.append(("Router login", txt, chip[1] if chip else TEXT))
+        if extra.get("remote"):
+            rows.append(("Remote view", v(extra.get("remote")), TEXT))
         rows.append(("Display", v(extra.get("display")), TEXT))
         rows.append(("Touch", v(extra.get("touch")), TEXT))
         rows.append(("Screen dim / sleep", v(extra.get("sleep")), TEXT))
@@ -595,6 +623,25 @@ class Renderer:
             self._button(draw, hits, (364, by0, 472, by1), "Test Wi-Fi" if on_home else "Home Wi-Fi", "switch_wifi",
                          (40, 90, 150), 14)
         return img, hits, pages
+
+    def render_alert(self, snap: dict, snooze_hours: float = 24) -> tuple[Image.Image, list[Hit]]:
+        """Full-screen "Router Logged Out" alert with Dismiss and a snooze button."""
+        img = Image.new("RGB", (self.w, self.h), (46, 22, 4))
+        draw = ImageDraw.Draw(img)
+        hits: list[Hit] = []
+        draw.rectangle((2, 2, self.w - 3, self.h - 3), outline=ORANGE, width=4)
+        self._text(draw, (self.w - 14, 18), clock.now().strftime("%a %b %d  %H:%M"), 12, MUTED, anchor="rm")
+        self._text(draw, (self.w // 2, 62), "Router Logged Out", 38, ORANGE, bold=True, anchor="mm", max_w=self.w - 30)
+        self._text(draw, (self.w // 2, 112), "The gateway did not accept the saved password.", 15, TEXT, anchor="mm", max_w=self.w - 30)
+        self._text(draw, (self.w // 2, 136), "Cell and signal data are not being recorded.", 15, TEXT, anchor="mm", max_w=self.w - 30)
+        detail = str(snap.get("router_login_detail") or "")
+        if detail:
+            self._text(draw, (self.w // 2, 162), detail, 12, MUTED, anchor="mm", max_w=self.w - 30)
+        self._text(draw, (self.w // 2, 194), "Fix over SSH:  sudo pingaroo router-password", 14, AMBER, bold=True, anchor="mm", max_w=self.w - 30)
+        hrs = int(snooze_hours) if float(snooze_hours).is_integer() else snooze_hours
+        self._button(draw, hits, (16, 232, 176, 300), "Dismiss", "alert_dismiss", BTN_NEUTRAL, size=20)
+        self._button(draw, hits, (188, 232, 464, 300), f"Don't Notify For {plural(hrs, 'Hour')}", "alert_snooze", (176, 96, 20), size=15)
+        return img, hits
 
     def render_message(self, title: str, lines: list[str], color=TEXT) -> Image.Image:
         img = Image.new("RGB", (self.w, self.h), BG)

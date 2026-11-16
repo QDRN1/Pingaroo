@@ -67,12 +67,20 @@ DEFAULTS: dict[str, Any] = {
         "password_file": "/etc/pingaroo/router.secret",
         "login_path": "",
         "logout_path": "",
+        "login_check_seconds": 600,   # re-check the saved password between cycles; 0 = only at each cycle
         "login_method": "form",
         "password_hash": "none",
         "login_fields": {"username": "username", "password": "password"},
         "status_paths": [],
         "timeout_seconds": 8,
         "fields": {},
+    },
+    # Remote view: a web page that mirrors the screen and turns clicks into taps.
+    # No login: anyone on the same network can open it.
+    "remote": {
+        "enabled": True,
+        "bind": "0.0.0.0",
+        "port": 8080,
     },
     "display": {
         "framebuffer": "",
@@ -87,6 +95,11 @@ DEFAULTS: dict[str, Any] = {
         "night_level": 0.25,          # active brightness at night
         "night_dim_level": 0.11,      # idle brightness at night
         "sleep_seconds": 0,           # full blank after this many idle seconds; 0 = never
+        # "Router Logged Out" alert: shown for alert_show_seconds every alert_repeat_seconds
+        # at full brightness (night: at night_level) until dismissed or snoozed.
+        "alert_repeat_seconds": 900,
+        "alert_show_seconds": 60,
+        "alert_snooze_hours": 24,
         "font": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "font_bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "console_graphics_mode": "auto",
@@ -218,6 +231,12 @@ def validate(cfg: dict) -> None:
         _require(0.0 <= float(disp[k]) <= 1.0, f"display.{k} must be between 0 and 1")
     for k in ("night_start", "night_end"):
         _require(parse_hhmm(disp[k]) is not None, f"display.{k} must be HH:MM (24-hour)")
+    _require(disp["alert_repeat_seconds"] >= 60, "display.alert_repeat_seconds must be >= 60")
+    _require(0 < disp["alert_show_seconds"] <= disp["alert_repeat_seconds"], "display.alert_show_seconds must be between 1 and alert_repeat_seconds")
+    _require(disp["alert_snooze_hours"] > 0, "display.alert_snooze_hours must be > 0")
+    _require(rt.get("login_check_seconds", 0) >= 0, "router.login_check_seconds must be >= 0")
+    rem = cfg["remote"]
+    _require(1 <= int(rem["port"]) <= 65535, "remote.port must be 1-65535")
     _require(disp["console_graphics_mode"] in ("auto", "always", "never"),
              "display.console_graphics_mode must be auto, always or never")
 

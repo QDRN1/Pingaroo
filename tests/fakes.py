@@ -134,7 +134,11 @@ class FakeBackend(Backend):
 
     def router_info(self, cfg):
         self.calls.append("router_info")
-        return {"cell_rsrp": -95, "cell_band": "n77", "cell_apn": "broadband"}
+        return {"cell_rsrp": -95, "cell_band": "n77", "cell_apn": "broadband", "login_state": "ok"}
+
+    def router_login_check(self, cfg):
+        self.calls.append("router_login_check")
+        return {"login_state": getattr(self, "login_state", "ok"), "error": ""}
 
     def activate_profile(self, profile, interface, timeout):
         self.calls.append(f"activate:{profile}")

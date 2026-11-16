@@ -60,10 +60,57 @@ def in_night_window(minutes_now: int, start: int, end: int) -> bool:
     return minutes_now >= start or minutes_now < end
 
 
-def brightness_level(idle_s: float, minutes_now: int, disp: dict) -> float:
-    """Software brightness 0..1 for the current idle time and local clock."""
+class AlertSchedule:
+    """Show an alert for show_s every repeat_s for as long as a condition holds."""
+
+    def __init__(self, repeat_s: float, show_s: float) -> None:
+        self.repeat_s, self.show_s = float(repeat_s), float(show_s)
+        self.until = 0.0     # monotonic time the current showing ends
+        self.next = 0.0      # monotonic time the next showing may start
+
+    def update(self, condition: bool, snoozed: bool, now: float) -> bool:
+        """True while the alert should be on screen."""
+        if not condition:
+            self.until = self.next = 0.0      # a new occurrence alerts at once
+            return False
+        if snoozed:
+            self.until = 0.0
+            return False
+        if now >= self.until and now >= self.next:
+            self.until = now + self.show_s
+            self.next = now + self.repeat_s
+        return now < self.until
+
+    def dismiss(self) -> None:
+        self.until = 0.0
+
+
+def read_snooze(path: str) -> float:
+    """Wall-clock time until which alerts are snoozed; 0 when not snoozed."""
+    try:
+        import json
+        with open(path, encoding="utf-8") as fh:
+            return float(json.load(fh).get("until", 0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0.0
+
+
+def write_snooze(path: str, until: float) -> None:
+    try:
+        import json
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"until": until}, fh)
+    except OSError:
+        pass
+
+
+def brightness_level(idle_s: float, minutes_now: int, disp: dict, alert: bool = False) -> float:
+    """Software brightness 0..1 for the current idle time and local clock.  An alert on
+    screen ignores the idle dimming: full by day, the night level at night."""
     night = in_night_window(minutes_now, config_mod.parse_hhmm(disp["night_start"]) or 0,
                             config_mod.parse_hhmm(disp["night_end"]) or 0)
+    if alert:
+        return float(disp["night_level"]) if night else 1.0
     dim_after = float(disp["dim_after_seconds"])
     idle = dim_after > 0 and idle_s >= dim_after
     if night and idle:
@@ -100,6 +147,13 @@ class UIController:
         self.sleep_seconds = float(cfg["display"]["sleep_seconds"])
         self.disp_cfg = dict(cfg["display"])
         self.level = 1.0
+        self.alert = AlertSchedule(self.disp_cfg["alert_repeat_seconds"], self.disp_cfg["alert_show_seconds"])
+        self.alert_showing = False
+        self.snooze_hours = float(self.disp_cfg["alert_snooze_hours"])
+        self.snooze_path = os.path.join(cfg["logging"]["directory"], "alert_snooze.json")
+        self.snooze_until = read_snooze(self.snooze_path)
+        # Latest frame at full brightness, for the remote view: (sequence, image)
+        self.frame: tuple[int, Image.Image | None] = (0, None)
         self.debounce_s = int(cfg["touch"]["debounce_ms"]) / 1000.0
         self.tap_max_move = int(cfg["touch"]["tap_max_move_px"])
         self.last_touch_mono = time.monotonic()
@@ -168,7 +222,14 @@ class UIController:
         return False
 
     def perform(self, action: str) -> None:
-        if action == "toggle_run":
+        if action == "alert_dismiss":
+            self.alert.dismiss()
+        elif action == "alert_snooze":
+            self.snooze_until = time.time() + self.snooze_hours * 3600
+            write_snooze(self.snooze_path, self.snooze_until)
+            self.alert.dismiss()
+            self.storage.write_event("alert_snoozed", alert="router_logged_out", hours=self.snooze_hours)
+        elif action == "toggle_run":
             with self.worker.state.lock:
                 running = self.worker.state.running
             if running:
@@ -228,9 +289,22 @@ class UIController:
         return snap, storage
 
     def render(self, force: bool = False) -> None:
-        if self.asleep or not self.fb:
+        if not self.fb:
             return
         snap, storage = self.snapshot()
+        logged_out = snap.get("router_login") in ("rejected", "locked")
+        alert = self.alert.update(logged_out, time.time() < self.snooze_until, time.monotonic())
+        if alert != self.alert_showing:
+            self.alert_showing = alert
+            force = True
+            if alert:
+                self.storage.write_event("alert_shown", alert="router_logged_out")
+        if self.asleep:
+            if not alert:
+                return
+            self.asleep = False                 # an alert wakes a blanked screen
+            self.sleep_note = self.fb.set_blank(False)
+            self.last_frame = None
         extra = dict(self.extra)
         d = self.disp_cfg
         dim_txt = ("off" if float(d["dim_after_seconds"]) <= 0 else
@@ -238,18 +312,23 @@ class UIController:
         night_txt = f"{d['night_start']}-{d['night_end']} {int(float(d['night_level']) * 100)}%/{int(float(d['night_dim_level']) * 100)}%"
         blank_txt = "off" if self.sleep_seconds <= 0 else f"{int(self.sleep_seconds)} s ({getattr(self.fb, 'sleep_method', '-')})"
         extra["sleep"] = f"dim {dim_txt}, night {night_txt}, blank {blank_txt}, now {int(self.level * 100)}%"
-        if self.screen == "details":
+        if alert:
+            img, self.hits = self.renderer.render_alert(snap, self.snooze_hours)
+        elif self.screen == "details":
             img, self.hits, self.pages = self.renderer.render_details(snap, storage, extra, self.page)
         else:
             img, self.hits = self.renderer.render_main(snap, storage, self.display_note)
         lt = time.localtime()
-        level = brightness_level(time.monotonic() - self.last_touch_mono, lt.tm_hour * 60 + lt.tm_min, self.disp_cfg)
+        level = brightness_level(time.monotonic() - self.last_touch_mono, lt.tm_hour * 60 + lt.tm_min,
+                                 self.disp_cfg, alert=alert)
         if level != self.level:
             self.level = level
             force = True
+        full = img
         img = apply_brightness(img, level)
         data = img.tobytes()
         if force or data != self.last_frame:
+            self.frame = (self.frame[0] + 1, full)
             try:
                 self.fb.blit(img)
             except OSError as exc:
@@ -354,6 +433,21 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
         fb = HeadlessFramebuffer(png_path, cfg["display"]["width"], cfg["display"]["height"]) if png_path else None
     controller = UIController(cfg, worker, storage, renderer, fb, extra)
 
+    remote = None
+    if cfg["remote"]["enabled"]:
+        from .remote import RemoteView
+
+        def _remote_tap(x: int, y: int) -> None:
+            t = time.monotonic()
+            touch_q.put(TouchEvent("down", x, y, t))
+            touch_q.put(TouchEvent("up", x, y, t))
+
+        remote = RemoteView(cfg["remote"]["bind"], cfg["remote"]["port"], cfg["display"]["width"],
+                            cfg["display"]["height"], lambda: controller.frame, _remote_tap)
+        err = remote.start()
+        extra["remote"] = f"cannot start: {err}" if err else f"port {remote.port} (http://<this address>:{remote.port})"
+        storage.write_event("remote_view", ok=not err, bind=cfg["remote"]["bind"], port=cfg["remote"]["port"], error=err)
+
     stop_flag = {"stop": False}
 
     def _on_signal(signum, _frame):
@@ -413,6 +507,8 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
         storage.write_event("app_stop", reason="signal" if stop_flag["stop"] else "exit")
         worker.shutdown()
         monitor.stop()
+        if remote is not None:
+            remote.stop()
         if touch_reader:
             touch_reader.stop()
         deadline = time.monotonic() + 8

@@ -99,6 +99,8 @@ class HttpJsonRouter:
         self.jar = http.cookiejar.CookieJar()
         self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
         self.headers = {"User-Agent": "pingaroo/1.0", "Accept": "application/json, */*"}
+        # ok | rejected | busy | locked | error | none (no login configured)
+        self.login_state = "none"
 
     def _request(self, path: str, data: bytes | None = None, extra: dict | None = None) -> tuple[int, bytes]:
         url = path if path.startswith("http") else self.base + "/" + path.lstrip("/")
@@ -124,6 +126,7 @@ class HttpJsonRouter:
         if not c["login_path"]:
             return ""
         if not password:
+            self.login_state = "error"
             return f"router password file {c['password_file']} missing or empty"
         fields = dict(c["login_fields"])
         payload = {fields.get("username", "username"): c["username"], fields.get("password", "password"): password}
@@ -140,15 +143,30 @@ class HttpJsonRouter:
             body = urllib.parse.urlencode(payload).encode()
             status, raw = self._request(c["login_path"], body, {"Content-Type": "application/x-www-form-urlencoded"})
         if status >= 400:
+            self.login_state = "error"
             return f"login HTTP {status}"
         # Routers that answer 200 with a JSON success/failure flag (e.g. AT&T NCM1120).
         try:
             jd = json.loads(raw.decode("utf-8", "replace"))
             if isinstance(jd, dict):
+                # NCM1120: Login 2 = "Another user is currently logged in" (one admin session
+                # at a time); LoginAttempt >= 5 = locked for 60 s after failed attempts.
+                if str(jd.get("Login", "")) == "2":
+                    self.login_state = "busy"
+                    return "login refused: the gateway admin page is in use by another device"
                 if jd.get("Success") is False or str(jd.get("Login", "1")) in ("0", "False", "false"):
+                    try:
+                        attempts = int(jd.get("LoginAttempt", 0) or 0)
+                    except (TypeError, ValueError):
+                        attempts = 0
+                    if attempts >= 5:
+                        self.login_state = "locked"
+                        return "login locked by the gateway after failed attempts (wrong password?)"
+                    self.login_state = "rejected"
                     return "login rejected (wrong password?)"
         except ValueError:
             pass
+        self.login_state = "ok"
         # Some firmwares return a token in JSON; keep it as a bearer header if present.
         try:
             data = json.loads(raw.decode("utf-8", "replace"))
@@ -179,6 +197,7 @@ class HttpJsonRouter:
             # Not fatal: some firmwares (AT&T NCM1120) serve the status reads without a
             # session.  Record it and continue; only an empty fetch is an error.
             out["login_error"] = login_err
+        out["login_state"] = self.login_state
         merged: dict = {}
         raw_pages: dict = {}
         for path in self.cfg["status_paths"]:
@@ -231,5 +250,19 @@ def fetch(cfg: dict) -> dict:
         try:
             return HttpJsonRouter(cfg).fetch()
         except Exception as exc:  # network errors, bad config: a result, not a crash
-            return {"error": f"{type(exc).__name__}: {exc}"[:160]}
+            return {"error": f"{type(exc).__name__}: {exc}"[:160], "login_state": "unreachable"}
     return {"error": f"unknown router type {kind}"}
+
+
+def check_login(cfg: dict) -> dict:
+    """Log in and straight back out: is the saved gateway password still accepted?
+    Used between test cycles.  Returns {} when no router is configured."""
+    if cfg["router"]["type"] != "http_json" or not cfg["router"]["login_path"]:
+        return {}
+    try:
+        r = HttpJsonRouter(cfg)
+        err = r.login()
+        r.logout(bool(err))
+        return {"login_state": r.login_state, "error": err}
+    except Exception as exc:
+        return {"login_state": "unreachable", "error": f"{type(exc).__name__}: {exc}"[:160]}
