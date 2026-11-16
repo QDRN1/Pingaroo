@@ -13,7 +13,8 @@ username = "attadmin"
 password_file = "/etc/pingaroo/router.secret"
 login_path = "/cgi-bin/Login"
 login_method = "ncm"           # POST JSON {UserName, Password, token}; 200 with {"Success":true}
-password_hash = "sha256"       # the UI sends SHA-256 of the admin password
+password_hash = "sha256"       # the UI sends SHA-256 of "attadmin:<password>" (script/login.js)
+logout_path = "/cgi-bin/Logout" # one admin session at a time: release it after each read
 login_fields = { username = "UserName", password = "Password" }
 status_paths = [
   "/cgi-bin/GetENDCInfo",        # 5G NR: band, rsrp, rsrq, snr, rssi, pci, tac, gci (cell id)

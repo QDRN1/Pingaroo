@@ -113,7 +113,10 @@ class HttpJsonRouter:
         c = self.cfg
         password = read_secret(c["password_file"])
         if c.get("password_hash") == "sha256" and password and not (len(password) == 64 and all(ch in "0123456789abcdef" for ch in password.lower())):
-            password = hashlib.sha256(password.encode()).hexdigest()
+            # The NCM1120 login page (script/login.js) hashes "UserName:password", not the
+            # password alone; the gateway rejects the plain-password hash with err_0001.
+            plain = f"{c['username']}:{password}" if c["login_method"] == "ncm" else password
+            password = hashlib.sha256(plain.encode()).hexdigest()
         if c["login_method"] == "basic":
             token = base64.b64encode(f"{c['username']}:{password}".encode()).decode()
             self.headers["Authorization"] = f"Basic {token}"
@@ -156,6 +159,19 @@ class HttpJsonRouter:
             pass
         return ""
 
+    def logout(self, login_failed: bool) -> None:
+        """The NCM1120 allows one admin session at a time and holds it for 5 idle minutes.
+        Give it back after each read.  Best effort: a failure here changes nothing."""
+        c = self.cfg
+        path = c.get("logout_path") or ("/cgi-bin/Logout" if c["login_method"] == "ncm" else "")
+        if not path or login_failed:
+            return
+        try:
+            self._request(path, json.dumps({"token": ""}).encode(),
+                          {"Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest"})
+        except Exception:
+            pass
+
     def fetch(self) -> dict:
         out: dict = {}
         login_err = self.login()
@@ -176,12 +192,18 @@ class HttpJsonRouter:
             except ValueError:
                 out.setdefault("errors", []).append(f"{path}: not JSON ({text[:60]!r})")
                 continue
+            if isinstance(data, dict) and (data.get("session_id_error") or data.get("token_error")):
+                # HTTP 200 with a flag: the gateway wants a session.  Without this check the
+                # row is logged with empty cell columns and no error.
+                out.setdefault("errors", []).append(f"{path}: login required")
+                continue
             data = redact(data)
             raw_pages[path] = data
             if isinstance(data, dict):
                 merged.update(data)
             else:
                 merged[path] = data
+        self.logout(bool(login_err))
         if not raw_pages:
             parts = out.get("errors", [])
             if out.get("login_error"):

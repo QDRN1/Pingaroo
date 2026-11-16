@@ -333,6 +333,8 @@ class RouterAdapter(unittest.TestCase):
         from pingaroo import router
         from tests.fakes import test_config
 
+        state = {"session": False, "logouts": 0}
+
         class H(http.server.BaseHTTPRequestHandler):
             def log_message(self, *a):
                 pass
@@ -340,18 +342,27 @@ class RouterAdapter(unittest.TestCase):
             def do_POST(self):
                 n = int(self.headers.get("Content-Length", 0))
                 body = js.loads(self.rfile.read(n).decode())
-                ok = body.get("Password") == hashlib.sha256(b"secret").hexdigest() and "token" in body
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
-                self.wfile.write(js.dumps({"Success": ok, "Login": 1 if ok else 0,
-                                           "sessionID": "abc"} if ok else {"Success": False, "Login": 0}).encode())
+                if self.path.startswith("/cgi-bin/Logout"):
+                    state["logouts"] += 1
+                    state["session"] = False
+                    self.wfile.write(js.dumps({"Success": True}).encode())
+                    return
+                # the real page hashes "UserName:password"
+                ok = body.get("Password") == hashlib.sha256(b"attadmin:secret").hexdigest() and "token" in body
+                state["session"] = ok
+                self.wfile.write(js.dumps({"Success": ok, "Login": 1 if ok else 0, "sessionID": "abc"} if ok
+                                          else {"Success": False, "Login": 0, "FailReason": "err_0001"}).encode())
 
             def do_GET(self):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
-                if self.path.startswith("/cgi-bin/GetENDCInfo"):
+                if not state["session"]:
+                    self.wfile.write(js.dumps({"session_id_error": True}).encode())
+                elif self.path.startswith("/cgi-bin/GetENDCInfo"):
                     self.wfile.write(js.dumps({"nrband": "N77", "nr5g_rsrp": "-72", "nr5g_snr": "2",
                                                "nr5g_rsrq": "-9", "nr5g_rssi": "-63", "nr5g_pci": "265",
                                                "nr5g_tac": "17939", "nr5g_gci": "83691327", "nrbandw": "9"}).encode())
@@ -381,12 +392,18 @@ class RouterAdapter(unittest.TestCase):
                 self.assertEqual(out["cell_5g_rsrp"], -72)
                 self.assertEqual(out["cell_cell_id"], 83691327)
                 self.assertEqual(out["cell_apn"], "5gcbroadband")
+                self.assertEqual(state["logouts"], 1, "the single admin session is released after the read")
+                self.assertFalse(state["session"])
                 with open(pw, "w") as fh:
                     fh.write("wrong\n")
                 out = router.fetch(cfg)
+                # A gateway that wants a session answers 200 {"session_id_error": true}: that is
+                # an error to record, not an empty status page.
                 self.assertIn("rejected", out.get("login_error", ""))
-                self.assertNotIn("error", out, "data served without a session must still be recorded")
-                self.assertEqual(out["cell_5g_band"], "N77")
+                self.assertIn("login required", out.get("error", ""))
+                self.assertIn("rejected", out.get("error", ""))
+                self.assertNotIn("cell_5g_band", out)
+                self.assertEqual(state["logouts"], 1, "no logout after a failed login")
         finally:
             srv.shutdown()
 

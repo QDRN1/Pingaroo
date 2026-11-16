@@ -66,6 +66,7 @@ DEFAULTS: dict[str, Any] = {
         "username": "attadmin",
         "password_file": "/etc/pingaroo/router.secret",
         "login_path": "",
+        "logout_path": "",
         "login_method": "form",
         "password_hash": "none",
         "login_fields": {"username": "username", "password": "password"},
