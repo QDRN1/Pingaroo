@@ -280,6 +280,10 @@ class RemoteViewServer(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"Pingaroo Remote", body)
         self.assertIn(b"480", body)
+        # Without height:auto the img's height attribute pins the height and the picture
+        # stretches to 3:1 on a wide window (seen on the first hardware run).
+        self.assertIn(b"height:auto", body)
+        self.assertIn(b"aspect-ratio:480/320", body)
         status, ctype, png = self.req("GET", "/screen.png?123")
         self.assertEqual((status, ctype), (200, "image/png"))
         self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")

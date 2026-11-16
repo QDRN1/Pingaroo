@@ -18,8 +18,11 @@ PAGE = """<!doctype html>
 <style>
  body{margin:0;background:#0a0d14;color:#f2f4f8;font-family:system-ui,Segoe UI,Arial,sans-serif;text-align:center}
  h1{font-size:18px;margin:14px 0 6px}
- #s{width:min(96vw,960px);aspect-ratio:__W__/__H__;border:1px solid #2c3648;border-radius:8px;cursor:pointer;
-    image-rendering:auto;background:#000;touch-action:manipulation}
+ /* height:auto is required: the img's height attribute would otherwise pin the height
+    while the width scales, stretching the picture. */
+ #s{width:min(96vw,960px,calc((100vh - 110px) * __W__ / __H__));height:auto;aspect-ratio:__W__/__H__;
+    border:1px solid #2c3648;border-radius:8px;cursor:pointer;image-rendering:auto;background:#000;
+    touch-action:manipulation}
  #st{font-size:13px;color:#969eac;margin:8px}
  .ok{color:#48d26e}.bad{color:#f05448}
 </style></head><body>
