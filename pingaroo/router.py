@@ -27,6 +27,48 @@ ROUTER_COLUMNS = [
     "cell_pci", "cell_tac", "cell_rsrp", "cell_rsrq", "cell_sinr", "cell_rssi", "cell_apn", "cell_ip",
     "cell_imei", "cell_imsi", "cell_iccid", "cell_firmware", "cell_uptime", "cell_5g_band", "cell_5g_rsrp",
     "cell_5g_rsrq", "cell_5g_sinr", "cell_5g_pci",
+    # added: more of what the gateway already reports
+    "cell_5g_rssi", "cell_5g_arfcn", "cell_nsa_nr_valid",
+    "cell_lte_pci", "cell_lte_cell_id", "cell_lte_tac", "cell_lte_bandwidth_mhz",
+    "cell_signal_level", "cell_5g_signal_level", "cell_sim_state",
+    "cell_pdp_type", "cell_auto_apn", "cell_data_conn",
+    "cell_conn_time_s", "cell_wan_gateway", "cell_dns", "cell_ip6",
+    "cell_total_down_bytes", "cell_total_up_bytes",
+    "cell_month_down_kb", "cell_month_up_kb", "cell_month_total_kb",
+    "gw_network_mode", "gw_clients", "gw_clients_5g", "gw_clients_24g", "gw_clients_eth",
+]
+
+# AT&T Internet Air (NCM1120) field map, used for login_method "ncm".  Entries in the
+# config's [router.fields] win; these fill in every column the config does not map, so
+# new columns arrive with a code update and no config edit.
+NCM_DEFAULT_FIELDS = {
+    "cell_carrier": "operator", "cell_technology": "net_type", "cell_apn": "APN_Name", "cell_ip": "ConnIP",
+    "cell_imei": "imei", "cell_imsi": "imsi", "cell_iccid": "iccid", "cell_firmware": "FwFullver",
+    "cell_uptime": "Uptime", "cell_5g_band": "nrband", "cell_5g_rsrp": "nr5g_rsrp", "cell_5g_rsrq": "nr5g_rsrq",
+    "cell_5g_sinr": "nr5g_snr", "cell_5g_pci": "nr5g_pci", "cell_pci": "nr5g_pci", "cell_tac": "nr5g_tac",
+    "cell_cell_id": "nr5g_gci", "cell_bandwidth_mhz": "nrbandw",
+    "cell_band": "data.0.band", "cell_rsrp": "data.0.rsrp", "cell_rsrq": "data.0.rsrq",
+    "cell_sinr": "data.0.sinr", "cell_rssi": "data.0.rssi",
+    "cell_5g_rssi": "nr5g_rssi", "cell_5g_arfcn": "nrchannel", "cell_nsa_nr_valid": "nsa_nr_valid",
+    "cell_lte_pci": "data.0.pci", "cell_lte_cell_id": "data.0.gci", "cell_lte_tac": "data.0.tac",
+    "cell_lte_bandwidth_mhz": "data.0.bandw",
+    "cell_signal_level": "signal_level", "cell_5g_signal_level": "signal_5g_level", "cell_sim_state": "SIMState",
+    "cell_pdp_type": "PdpType", "cell_auto_apn": "Enable_AutoAPN", "cell_data_conn": "Enable_DataConn",
+    "cell_conn_time_s": "ConnTime", "cell_wan_gateway": "ConnGate", "cell_dns": "DnsServer", "cell_ip6": "WanIp6",
+    "cell_total_down_bytes": "DownSum", "cell_total_up_bytes": "UpSum",
+    # DownSum/UpSum: bytes since the gateway booted (they do not reset with the data session).
+    # Monthly counters: unit not documented, believed kilobytes.  Over 78 minutes on Oct 30
+    # DownSum+UpSum rose by 393 MB while Monthly_Total rose by 387,970.
+    "cell_month_down_kb": "Monthly_DL", "cell_month_up_kb": "Monthly_UL", "cell_month_total_kb": "Monthly_Total",
+    "gw_network_mode": "Network_Mode",          # 0 = 5G NSA, 2 = 5G Standalone allowed
+    "gw_clients": "page:/cgi-bin/GetCurClient:Clients.#",
+    "gw_clients_5g": "page:/cgi-bin/GetCurClient:Clients.#Interface=5",
+    "gw_clients_24g": "page:/cgi-bin/GetCurClient:Clients.#Interface=2",
+    "gw_clients_eth": "page:/cgi-bin/GetCurClient:Clients.#Interface=0",
+}
+NCM_DEFAULT_PATHS = [
+    "/cgi-bin/GetENDCInfo", "/cgi-bin/GetLTEStatus", "/cgi-bin/GetLTEBasicSetting", "/cgi-bin/GetWanIp",
+    "/cgi-bin/GetNvInfo", "/cgi-bin/GetStatistic", "/cgi-bin/GetNetworkSelection", "/cgi-bin/GetCurClient",
 ]
 
 
@@ -39,9 +81,15 @@ def read_secret(path: str) -> str:
 
 
 def dig(data, path: str):
-    """Dotted path lookup with list indexes: 'a.b.0.c'.  Returns None if missing."""
+    """Dotted path lookup with list indexes: 'a.b.0.c'.  Returns None if missing.
+    On a list, '#' is its length and '#Key=value' counts the items whose Key equals value."""
     cur = data
     for part in path.split("."):
+        if isinstance(cur, list) and part.startswith("#"):
+            if part == "#":
+                return len(cur)
+            key, _, want = part[1:].partition("=")
+            return sum(1 for item in cur if isinstance(item, dict) and str(item.get(key, "")).strip() == want)
         if isinstance(cur, list):
             try:
                 cur = cur[int(part)]
@@ -83,6 +131,10 @@ def redact(obj):
 def _coerce(value):
     if isinstance(value, (int, float)) or value is None:
         return value
+    if isinstance(value, list):
+        if all(not isinstance(v, (dict, list)) for v in value):
+            return "; ".join(str(v) for v in value)
+        return None
     text = str(value).strip()
     m = re.fullmatch(r"(-?\d+(?:\.\d+)?)\s*(?:dBm|dB|MHz|Mbps|%)?", text)
     if m:
@@ -93,7 +145,12 @@ def _coerce(value):
 
 class HttpJsonRouter:
     def __init__(self, cfg: dict) -> None:
-        self.cfg = cfg["router"]
+        self.cfg = dict(cfg["router"])
+        if self.cfg["login_method"] == "ncm":
+            # Built-in map for this gateway: the config's own entries win.
+            self.cfg["fields"] = {**NCM_DEFAULT_FIELDS, **dict(self.cfg.get("fields") or {})}
+            paths = list(self.cfg.get("status_paths") or [])
+            self.cfg["status_paths"] = paths + [p for p in NCM_DEFAULT_PATHS if p not in paths]
         self.base = self.cfg["base_url"].rstrip("/")
         self.timeout = float(self.cfg["timeout_seconds"])
         self.jar = http.cookiejar.CookieJar()

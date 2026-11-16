@@ -25,8 +25,12 @@ CSV_COLUMNS = [
     "icmp_ok", "gateway_ping_ms", "gateway_ping_loss_pct",
     "ping1_target", "ping1_avg_ms", "ping1_loss_pct", "ping2_target", "ping2_avg_ms", "ping2_loss_pct",
     "download_mbps", "upload_mbps", "latency_ms", "jitter_ms", "packet_loss_pct",
-    "download_bytes", "upload_bytes", "public_ip", "server_id", "server_name", "server_location",
-    "server_host", "result_url", "speedtest_version", "speedtest_partial",
+    "latency_low_ms", "latency_high_ms",
+    "download_latency_ms", "download_latency_high_ms", "download_latency_jitter_ms",
+    "upload_latency_ms", "upload_latency_high_ms", "upload_latency_jitter_ms",
+    "download_bytes", "upload_bytes", "download_elapsed_ms", "upload_elapsed_ms",
+    "public_ip", "isp", "server_id", "server_name", "server_location",
+    "server_host", "server_ip", "result_url", "speedtest_version", "speedtest_partial",
 ] + ROUTER_COLUMNS + ["router_error"]
 
 

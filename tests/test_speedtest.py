@@ -102,3 +102,34 @@ class SpeedtestRunner(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LoadedLatency(unittest.TestCase):
+    def test_result_keeps_latency_under_load(self):
+        from pingaroo.speedtest import SpeedtestResult, apply_result_json
+        raw = {"type": "result", "isp": "AT&T Wireless", "packetLoss": 4.9,
+               "ping": {"jitter": 0.789, "latency": 80.019, "low": 79.54, "high": 82.698},
+               "download": {"bandwidth": 2422580, "bytes": 28061968, "elapsed": 12204,
+                            "latency": {"iqm": 528.245, "low": 88.966, "high": 2851.065, "jitter": 80.569}},
+               "upload": {"bandwidth": 379891, "bytes": 4351856, "elapsed": 12314,
+                          "latency": {"iqm": 1075.264, "low": 98.548, "high": 3426.639, "jitter": 93.674}},
+               "server": {"id": 15869, "host": "h", "name": "n", "ip": "2605:8400:0:15::141"}, "interface": {}, "result": {}}
+        r = SpeedtestResult()
+        apply_result_json(r, raw)
+        self.assertEqual((r.latency_low_ms, r.latency_high_ms), (79.54, 82.698))
+        self.assertEqual((r.download_latency_ms, r.download_latency_high_ms, r.download_latency_jitter_ms), (528.245, 2851.065, 80.569))
+        self.assertEqual((r.upload_latency_ms, r.upload_latency_high_ms, r.upload_latency_jitter_ms), (1075.264, 3426.639, 93.674))
+        self.assertEqual((r.download_elapsed_ms, r.upload_elapsed_ms, r.isp, r.server_ip), (12204, 12314, "AT&T Wireless", "2605:8400:0:15::141"))
+        # an older tool version without the latency blocks leaves them empty, not zero
+        r2 = SpeedtestResult()
+        apply_result_json(r2, {"download": {"bandwidth": 1}, "upload": {"bandwidth": 1}, "ping": {"latency": 5}})
+        self.assertIsNone(r2.download_latency_ms)
+        self.assertIsNone(r2.upload_latency_ms)
+
+    def test_columns_reach_the_csv(self):
+        from pingaroo.storage import CSV_COLUMNS
+        for col in ("download_latency_ms", "upload_latency_ms", "latency_high_ms", "isp", "server_ip", "gw_clients",
+                    "cell_month_total_kb", "cell_total_down_bytes", "cell_conn_time_s", "cell_5g_rssi", "gw_network_mode",
+                    "cell_imei", "cell_imsi", "cell_iccid"):
+            self.assertIn(col, CSV_COLUMNS)
+        self.assertEqual(len(CSV_COLUMNS), len(set(CSV_COLUMNS)), "no duplicate columns")

@@ -59,6 +59,9 @@ def summarize(rows: list[dict]) -> list[dict]:
         l = stats("latency_ms")
         s = stats("signal_dbm")
         rsrp = stats("cell_rsrp")
+        dll = stats("download_latency_ms")
+        ull = stats("upload_latency_ms")
+        cli = stats("gw_clients")
         statuses = {}
         for r in group:
             statuses[r.get("status", "")] = statuses.get(r.get("status", ""), 0) + 1
@@ -70,6 +73,7 @@ def summarize(rows: list[dict]) -> list[dict]:
             "up_avg": u[0], "up_median": u[1], "up_min": u[2], "up_max": u[3],
             "latency_avg": l[0], "latency_median": l[1], "latency_min": l[2], "latency_max": l[3],
             "wifi_dbm_avg": s[0], "rsrp_avg": rsrp[0],
+            "down_loaded_latency_median": dll[1], "up_loaded_latency_median": ull[1], "gateway_clients_avg": cli[0],
             "failures": "; ".join(f"{k}={v}" for k, v in sorted(statuses.items()) if k != "SUCCESS"),
         })
     return out
@@ -107,7 +111,8 @@ def write_xlsx(rows: list[dict], path: str, title: str = "Pingaroo results") -> 
     ws2 = wb.create_sheet("Summary by Label")
     cols = ["label", "attempts", "successes", "success_pct", "first", "last", "down_avg", "down_median", "down_min",
             "down_max", "up_avg", "up_median", "up_min", "up_max", "latency_avg", "latency_median", "latency_min",
-            "latency_max", "wifi_dbm_avg", "rsrp_avg", "failures"]
+            "latency_max", "wifi_dbm_avg", "rsrp_avg", "down_loaded_latency_median", "up_loaded_latency_median",
+            "gateway_clients_avg", "failures"]
     ws2.append(cols)
     for cell in ws2[1]:
         cell.font = head_font
@@ -122,5 +127,13 @@ def write_xlsx(rows: list[dict], path: str, title: str = "Pingaroo results") -> 
     ws3.append(["Rows", len(rows)])
     ws3.append(["Units", "Mbps = megabits per second; latency/jitter ms; RSRP/RSRQ dBm/dB; signal_dbm is the Pi's Wi-Fi link, not cellular"])
     ws3.append(["Note", "Measured throughput includes the Pi-to-router Wi-Fi link"])
+    ws3.append(["Loaded latency", "download_latency_ms / upload_latency_ms are the speed test's latency while the link is busy "
+                                  "(interquartile mean); latency_ms is the idle figure"])
+    ws3.append(["Gateway counters", "cell_month_*_kb are the gateway's monthly counters, believed to be kilobytes (not documented); "
+                                    "cell_total_*_bytes are its byte counters since the gateway last booted; cell_conn_time_s is the age of the current data session"])
+    ws3.append(["Gateway clients", "gw_clients is how many devices the gateway listed at the time of the test (5g / 24g / eth by radio)"])
+    ws3.append(["Signal columns", "With n77 attached the gateway reports signal under cell_5g_* and leaves the LTE anchor's "
+                                  "cell_rsrp / cell_sinr blank; on LTE only it is the other way round"])
+    ws3.append(["Older rows", "Columns added later are blank in rows logged before the change"])
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     wb.save(path)

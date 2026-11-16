@@ -637,6 +637,13 @@ class Worker:
             "server_id": s.server_id, "server_name": s.server_name, "server_location": s.server_location,
             "server_host": s.server_host, "result_url": s.result_url, "speedtest_version": s.tool_version,
             "speedtest_partial": s.partial,
+            "latency_low_ms": s.latency_low_ms, "latency_high_ms": s.latency_high_ms,
+            "download_latency_ms": s.download_latency_ms, "download_latency_high_ms": s.download_latency_high_ms,
+            "download_latency_jitter_ms": s.download_latency_jitter_ms,
+            "upload_latency_ms": s.upload_latency_ms, "upload_latency_high_ms": s.upload_latency_high_ms,
+            "upload_latency_jitter_ms": s.upload_latency_jitter_ms,
+            "download_elapsed_ms": s.download_elapsed_ms, "upload_elapsed_ms": s.upload_elapsed_ms,
+            "isp": s.isp, "server_ip": s.server_ip,
         })
 
 

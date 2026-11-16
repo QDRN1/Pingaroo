@@ -407,6 +407,37 @@ class RouterAdapter(unittest.TestCase):
         finally:
             srv.shutdown()
 
+    def test_dig_counts_and_list_values(self):
+        from pingaroo.router import dig, _coerce
+        data = {"Clients": [{"Interface": "5"}, {"Interface": "5"}, {"Interface": "2"}, {"Interface": " 0 "}, "junk"]}
+        self.assertEqual(dig(data, "Clients.#"), 5)
+        self.assertEqual(dig(data, "Clients.#Interface=5"), 2)
+        self.assertEqual(dig(data, "Clients.#Interface=2"), 1)
+        self.assertEqual(dig(data, "Clients.#Interface=0"), 1)
+        self.assertEqual(dig({"Clients": []}, "Clients.#"), 0)
+        self.assertIsNone(dig({}, "Clients.#"))
+        self.assertEqual(_coerce(["0.0.0.0", "172.26.38.2"]), "0.0.0.0; 172.26.38.2")
+        self.assertIsNone(_coerce([{"a": 1}]))
+
+    def test_ncm_built_in_map_fills_unmapped_columns(self):
+        from pingaroo import router
+        from tests.fakes import test_config
+        cfg = test_config()
+        cfg["router"].update(type="http_json", login_method="ncm", login_path="/cgi-bin/Login",
+                             status_paths=["/cgi-bin/GetENDCInfo"], fields={"cell_carrier": "my_own_key"})
+        r = router.HttpJsonRouter(cfg)
+        self.assertEqual(r.cfg["fields"]["cell_carrier"], "my_own_key", "the config's own mapping wins")
+        self.assertEqual(r.cfg["fields"]["cell_5g_rssi"], "nr5g_rssi")
+        self.assertEqual(r.cfg["status_paths"][0], "/cgi-bin/GetENDCInfo")
+        for path in router.NCM_DEFAULT_PATHS:
+            self.assertEqual(r.cfg["status_paths"].count(path), 1)
+        unmapped = [c for c in router.ROUTER_COLUMNS if c not in r.cfg["fields"]]
+        self.assertEqual(unmapped, ["cell_earfcn"], "only the LTE channel, which this gateway does not report")
+        self.assertEqual(cfg["router"]["fields"], {"cell_carrier": "my_own_key"}, "the loaded config is not modified")
+        # other adapters get no built-in map
+        cfg["router"]["login_method"] = "json"
+        self.assertEqual(router.HttpJsonRouter(cfg).cfg["fields"], {"cell_carrier": "my_own_key"})
+
     def test_fetch_none_and_http(self):
         import http.server, json as js, threading
         from pingaroo import router
