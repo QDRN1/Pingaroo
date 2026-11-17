@@ -80,3 +80,44 @@ def connect(cfg: dict, interface: str, cancel: CancelToken,
         else:
             error = "not connected after attempt"
     return False, state, error
+
+
+def connect_ethernet(cfg: dict, interface: str, cancel: CancelToken,
+                     timeout: float | None = None) -> tuple[bool, netinfo.WifiState, str]:
+    """Bring the wired port up and wait for an IPv4 address.  One bounded attempt.
+    With no cable there is nothing to try, so that is reported straight away."""
+    timeout = timeout or float(cfg["link"]["connect_timeout_seconds"])
+    deadline = time.monotonic() + timeout
+    state = netinfo.ethernet_state(interface)
+    if not interface:
+        return False, state, "no Ethernet interface detected"
+    if state.connected:
+        return True, state, ""
+    if state.carrier is False:
+        return False, state, "no cable detected on the Ethernet port"
+    nm_wait = max(5, int(timeout) - 2)
+    res = shell.run(["nmcli", "-w", str(nm_wait), "device", "connect", interface],
+                    timeout=timeout, cancel=cancel)
+    if cancel.cancelled:
+        return False, netinfo.ethernet_state(interface), "interrupted"
+    error = ""
+    if not res.ok:
+        error = "connection attempt timed out" if res.timed_out else \
+            explain_nmcli_error(res.stderr or res.stdout or res.error or "")
+    while True:
+        state = netinfo.ethernet_state(interface)
+        if state.connected:
+            return True, state, ""
+        if cancel.cancelled:
+            return False, state, "interrupted"
+        if time.monotonic() >= deadline or not res.ok:
+            break
+        cancel.wait(float(cfg["wifi"]["poll_seconds"]))
+    if not error:
+        if state.carrier is False:
+            error = "no cable detected on the Ethernet port"
+        elif not state.ip:
+            error = "cable connected but no IPv4 address (DHCP)"
+        else:
+            error = "not connected after attempt"
+    return False, state, error

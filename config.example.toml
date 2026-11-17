@@ -29,6 +29,21 @@ interface = ""
 # One bounded connection attempt per cycle (association + DHCP).
 connect_timeout_seconds = 45
 
+[link]
+# Which link carries the test traffic.
+#   "auto"     (default) Wi-Fi, unless a cable from the Pi's Ethernet port to a LAN port on
+#              the gateway is live; then that cycle runs over the cable. Checked at every
+#              cycle, so plugging the cable in or pulling it out needs no command.
+#   "wifi"     always the Wi-Fi radio (keep the cable unplugged in this mode).
+#   "ethernet" always the cable; no cable is ETHERNET_FAILED, Wi-Fi is never used.
+# Over the cable the Pi's own Wi-Fi is out of the numbers, and the radio is left alone: it
+# can sit on either network, only as a way to reach the Pi.
+# Change with: sudo pingaroo link auto|wifi|ethernet, then restart the service.
+mode = "auto"
+# Leave empty to use the first wired port; set e.g. "eth0" to override.
+ethernet_interface = ""
+connect_timeout_seconds = 30
+
 [connectivity]
 ping_targets = ["1.1.1.1", "8.8.8.8"]
 ping_count = 4

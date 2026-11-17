@@ -32,6 +32,16 @@ def connected_state(ip="192.168.8.142", ssid="Kangaroo Labs", bssid="aa:bb:cc:dd
                      signal_dbm=-55, freq_mhz=5180, channel=36, band="5 GHz", tx_rate_mbps=390.0)
 
 
+def ethernet_connected(ip="192.168.8.77") -> WifiState:
+    return WifiState(interface="eth0", kind="ethernet", nm_state="100 (connected)", connection="Wired connection 1",
+                     connected=True, associated=True, carrier=True, ip=ip, prefix=24, gateway="192.168.8.1",
+                     dhcp_dns=["192.168.8.1"], band="Ethernet", tx_rate_mbps=1000.0, rx_rate_mbps=1000.0)
+
+
+def ethernet_unplugged() -> WifiState:
+    return WifiState(interface="eth0", kind="ethernet", nm_state="20 (unavailable)", carrier=False, band="Ethernet")
+
+
 def disconnected_state() -> WifiState:
     return WifiState(interface="wlan0", nm_state="30 (disconnected)")
 
@@ -74,6 +84,8 @@ class FakeBackend(Backend):
     def __init__(self) -> None:
         self.states: list[WifiState] = [connected_state()]
         self.connect_results: list[tuple[bool, WifiState, str]] = [(True, connected_state(), "")]
+        self.eth_states: list[WifiState] = [ethernet_connected()]
+        self.eth_connect_results: list[tuple[bool, WifiState, str]] = [(True, ethernet_connected(), "")]
         self.route_results: list[tuple[bool, str]] = [(True, "")]
         self.conn_results: list[ConnectivityResult] = [good_connectivity()]
         self.speed_results: list[SpeedtestResult] = [good_speed()]
@@ -103,7 +115,17 @@ class FakeBackend(Backend):
         ok, st, err = self._next(self.connect_results)
         return ok, copy.deepcopy(st), err
 
+    def ethernet_state(self, interface):
+        self.calls.append("ethernet_state")
+        return copy.deepcopy(self._next(self.eth_states))
+
+    def connect_ethernet(self, cfg, interface, cancel: CancelToken):
+        self.calls.append("connect_ethernet")
+        ok, st, err = self._next(self.eth_connect_results)
+        return ok, copy.deepcopy(st), err
+
     def route_check(self, interface, targets, want_ipv6):
+        self.calls.append(f"route_check:{interface}")
         self.calls.append("route_check")
         return self._next(self.route_results)
 
@@ -114,6 +136,7 @@ class FakeBackend(Backend):
         return copy.deepcopy(self._next(self.conn_results))
 
     def speedtest(self, cfg, interface, cancel, on_phase):
+        self.calls.append(f"speedtest:{interface}")
         self.calls.append("speedtest")
         self.speed_started += 1
         self.speed_active += 1
@@ -142,6 +165,7 @@ class FakeBackend(Backend):
 
     def activate_profile(self, profile, interface, timeout):
         self.calls.append(f"activate:{profile}")
+        self.calls.append(f"activate_on:{interface}")
         return True, ""
 
 

@@ -105,6 +105,53 @@ route, the Wi-Fi stage fails first (`WIFI_FAILED`), nothing is probed over Ether
 If the Wi-Fi is associated but the route check still names `eth0`, you get
 `ROUTE_FAILED`, not a false success.
 
+## Testing over Ethernet instead of Wi-Fi
+
+Over Wi-Fi the Pi's own radio caps and shapes the numbers: download tops out near 110 Mbps
+and moves with where the Pi sits. A cable from the Pi's Ethernet port to a LAN port on the
+gateway takes that out of the measurement.
+
+The default, `link.mode = "auto"`, needs no command:
+
+- No cable: every cycle runs over Wi-Fi, exactly as before.
+- Cable live to the gateway: the cycle runs over the cable. Pull it and the next cycle is
+  Wi-Fi again.
+- The link is chosen at the start of each cycle and held for that cycle.
+- "Live to the gateway" means the wired port has an address and its gateway is the router
+  in `[router] base_url`. A cable into some other network is not used for testing, so it
+  can never produce rows under the test label. Details shows the reason under
+  "Link under test".
+
+To pin the link instead:
+
+```bash
+sudo pingaroo link ethernet
+sudo systemctl restart pingaroo
+sudo pingaroo start
+```
+
+`sudo pingaroo link wifi` pins Wi-Fi, `sudo pingaroo link auto` goes back to the default.
+`pingaroo link` with no argument shows the setting, the wired port, whether a cable is
+connected, its address and which link is in use.
+
+What an Ethernet cycle looks like:
+
+- Every stage (route check, pings, DNS, HTTPS, speed test) is bound to the wired port.
+- Rows have `interface` = the wired port, `band` = `Ethernet`, `link_rate_mbps` = the port
+  speed, and blank `ssid`, `bssid`, `signal_dbm` and `channel`. Filter on `band` or
+  `interface` to keep Wi-Fi and Ethernet rows apart; they are not comparable on download.
+- The Wi-Fi radio is not used for testing and is not touched by the loop. The Home Wi-Fi /
+  Test Wi-Fi button still moves the radio, but only as a way to reach the Pi: rows stay
+  `target` = `test` and keep the test label whichever network the radio is on. With the
+  radio on the home network the Pi answers on its home address while it tests the gateway
+  over the cable.
+- With `link.mode = "ethernet"`, no cable or no address is `ETHERNET_FAILED`; the app does
+  not fall back to Wi-Fi.
+
+With `link.mode = "wifi"` keep the cable unplugged. NetworkManager prefers a wired default
+route, so with a live cable the Wi-Fi cycles stop with `ROUTE_FAILED` (by design: no false
+results).
+
 Consequences you accept with this design:
 
 - While the test Wi-Fi is up, the Pi's own outbound traffic (apt, NTP, SSH you

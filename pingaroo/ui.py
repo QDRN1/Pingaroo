@@ -255,7 +255,20 @@ class Renderer:
         y = 40
         home = bool(self.home_ssid) and wifi.get("ssid") == self.home_ssid and self.home_ssid != self.ssid
         target = self.ssid
-        if snap.get("switching"):
+        ethernet = snap.get("link_mode") == "ethernet"
+        mgmt = snap.get("mgmt_wifi") or {}
+        if ethernet:
+            # The cable carries the test; the Wi-Fi radio is only a way to reach the Pi.
+            rate = wifi.get("tx_rate_mbps")
+            if wifi.get("connected"):
+                wifi_txt, wifi_col = (f"{fmt_num(rate, 0)} Mbps" if rate else "Connected"), GREEN
+            elif phase == "Connecting" and running:
+                wifi_txt, wifi_col = "Connecting", AMBER
+            elif wifi.get("carrier") is False or not wifi.get("associated"):
+                wifi_txt, wifi_col = "No Cable", RED
+            else:
+                wifi_txt, wifi_col = "No IP Yet", AMBER
+        elif snap.get("switching"):
             dest = self.home_ssid if snap["switching"] == "home" else self.ssid
             wifi_txt, wifi_col = f"Switching to {dest or snap['switching']}", AMBER
         elif wifi.get("connected"):
@@ -270,8 +283,11 @@ class Renderer:
             wifi_txt, wifi_col = f"Other: {wifi.get('ssid') or '?'}", AMBER
         else:
             wifi_txt, wifi_col = f"Not connected (target {target})", RED
-        self._icon_wifi(draw, 8, y + 1, signal_bars(wifi.get("signal_dbm")) if wifi.get("associated") else 0, wifi_col)
-        self._text(draw, (36, y), "Wi-Fi", 15, MUTED)
+        if ethernet:
+            self._icon_wifi(draw, 8, y + 1, 4 if wifi.get("connected") else 0, wifi_col)
+        else:
+            self._icon_wifi(draw, 8, y + 1, signal_bars(wifi.get("signal_dbm")) if wifi.get("associated") else 0, wifi_col)
+        self._text(draw, (36, y), "Wired" if ethernet else "Wi-Fi", 15, MUTED)
         ip = wifi.get("ip") or "No IP"
         ip_font = self.fonts.get(15, True)
         ip_w = int(draw.textlength(ip, font=ip_font))
@@ -279,6 +295,12 @@ class Renderer:
         self._text(draw, (self.w - 8, y), ip, 15, TEXT if wifi.get("ip") else RED, bold=True, anchor="ra")
         right_edge = ip_x - 8
         dbm_txt = f"{wifi['signal_dbm']} dBm" if (wifi.get("signal_dbm") is not None and wifi.get("associated")) else ""
+        if ethernet:
+            # where the Wi-Fi radio is, so it is clear which network reaches the Pi
+            if snap.get("switching"):
+                dbm_txt = "Wi-Fi: switching"
+            else:
+                dbm_txt = f"Wi-Fi: {mgmt.get('ssid')}"[:22] if mgmt.get("ssid") else "Wi-Fi: off"
         if dbm_txt:
             dbm_w = int(draw.textlength(dbm_txt, font=self.fonts.get(12)))
             self._text(draw, (right_edge - dbm_w, y + 2), dbm_txt, 12, MUTED)
@@ -407,7 +429,7 @@ class Renderer:
         elif snap.get("worker_crash"):
             err = f"Worker crashed: {snap['worker_crash']}"
         elif not snap.get("interface"):
-            err = "No Wi-Fi interface detected"
+            err = "No Ethernet interface detected" if snap.get("link_mode") == "ethernet" else "No Wi-Fi interface detected"
         elif snap.get("switch_note"):
             err, err_col = snap["switch_note"], AMBER
         elif display_note:
@@ -453,9 +475,45 @@ class Renderer:
             return na if x in (None, "", []) else f"{x}{suffix}"
 
         rows: list[tuple[str, str, tuple]] = []
-        rows.append(("WI-FI LINK", "", AMBER))
+        ethernet = snap.get("link_mode") == "ethernet"
+        setting = snap.get("link_setting")
+        link_row = None
+        if setting:
+            using = "Ethernet" if ethernet else "Wi-Fi"
+            text = f"auto (using {using})" if setting == "auto" else f"{using} (fixed)"
+            if snap.get("link_note"):
+                text += f": {snap['link_note']}"
+            link_row = ("Link under test", text, AMBER if snap.get("link_note") else TEXT)
+        if ethernet:
+            # The cable is the link under test.  The Wi-Fi rows below then describe the
+            # radio, which only serves to reach the Pi.
+            rows.append(("ETHERNET LINK (UNDER TEST)", "", AMBER))
+            if link_row:
+                rows.append(link_row)
+            cable = "connected" if wifi.get("carrier") else "not connected" if wifi.get("carrier") is False else na
+            rows.append(("Cable", cable, GREEN if wifi.get("connected") else RED if wifi.get("carrier") is False else TEXT))
+            rows.append(("Interface", v(snap.get("interface")) + (f" ({snap.get('interface_note')})" if snap.get("interface_note") else ""), TEXT))
+            rows.append(("Link speed", v(fmt_num(wifi.get("tx_rate_mbps"), 0) if wifi.get("tx_rate_mbps") else None, " Mbps"), TEXT))
+            rows.append(("Local IP", v(wifi.get("ip")) + (f"/{wifi.get('prefix')}" if wifi.get("ip") and wifi.get("prefix") else ""), TEXT))
+            rows.append(("Gateway", v(wifi.get("gateway")), TEXT))
+            rows.append(("Router DNS (DHCP)", v(", ".join(wifi.get("dhcp_dns") or [])), TEXT))
+            rows.append(("IPv6", v(", ".join(wifi.get("ipv6") or [])), TEXT))
+            rows.append(("Public IP (last test)", v(speed.get("public_ip")), TEXT))
+            wifi = snap.get("mgmt_wifi") or {}
+        rows.append(("WI-FI (FOR REACHING THE PI)" if ethernet else "WI-FI LINK", "", AMBER))
+        if link_row and not ethernet:
+            rows.append(link_row)
         same_net = bool(self.home_ssid) and self.home_ssid == self.ssid
-        if wifi.get("associated"):
+        if ethernet:
+            if wifi.get("associated"):
+                tag = ("  [test network]" if wifi.get("ssid") == self.ssid else
+                       "  [home network]" if wifi.get("ssid") and wifi.get("ssid") == self.home_ssid else "  [other network]")
+                rows.append(("Connected SSID", v(wifi.get("ssid")) + tag, TEXT))
+            else:
+                rows.append(("Connected SSID", "not connected", MUTED))
+            rows.append(("Wi-Fi IP", v(wifi.get("ip")), TEXT))
+            rows.append(("Signal", v(wifi.get("signal_dbm"), " dBm"), TEXT))
+        elif wifi.get("associated"):
             tag = ("  [test network]" if wifi.get("ssid") == self.ssid else
                    "  [home network]" if wifi.get("ssid") and wifi.get("ssid") == self.home_ssid else "  [other network]")
             rows.append(("Connected SSID", v(wifi.get("ssid")) + tag, GREEN if wifi.get("connected") else TEXT))
@@ -463,19 +521,20 @@ class Renderer:
             rows.append(("Connected SSID", f"not connected (target {self.ssid})", RED))
         rows.append(("Test network", self.ssid + ("  (same as home: run setup-wifi.sh)" if same_net else ""), AMBER if same_net else TEXT))
         rows.append(("Home network", v(self.home_ssid), TEXT))
-        rows.append(("Interface", v(snap.get("interface")) + (f" ({snap.get('interface_note')})" if snap.get("interface_note") else ""), TEXT))
-        rows.append(("BSSID", v(wifi.get("bssid")), TEXT))
-        rows.append(("Signal", v(wifi.get("signal_dbm"), " dBm") + "  (Wi-Fi link, not cellular)", TEXT))
-        band = wifi.get("band") or ""
-        ch = wifi.get("channel")
-        rows.append(("Band / channel", (f"{band} ch {ch}" if band and ch else na), TEXT))
-        rate = wifi.get("tx_rate_mbps")
-        rows.append(("Link rate", (f"tx {fmt_num(rate, 0)} Mbps" + (f", rx {fmt_num(wifi.get('rx_rate_mbps'), 0)} Mbps" if wifi.get("rx_rate_mbps") else "")) if rate else na, TEXT))
-        rows.append(("Local IP", v(wifi.get("ip")) + (f"/{wifi.get('prefix')}" if wifi.get("ip") and wifi.get("prefix") else ""), TEXT))
-        rows.append(("Gateway", v(wifi.get("gateway")), TEXT))
-        rows.append(("Router DNS (DHCP)", v(", ".join(wifi.get("dhcp_dns") or [])), TEXT))
-        rows.append(("IPv6", v(", ".join(wifi.get("ipv6") or [])), TEXT))
-        rows.append(("Public IP (last test)", v(speed.get("public_ip")), TEXT))
+        if not ethernet:
+            rows.append(("Interface", v(snap.get("interface")) + (f" ({snap.get('interface_note')})" if snap.get("interface_note") else ""), TEXT))
+            rows.append(("BSSID", v(wifi.get("bssid")), TEXT))
+            rows.append(("Signal", v(wifi.get("signal_dbm"), " dBm") + "  (Wi-Fi link, not cellular)", TEXT))
+            band = wifi.get("band") or ""
+            ch = wifi.get("channel")
+            rows.append(("Band / channel", (f"{band} ch {ch}" if band and ch else na), TEXT))
+            rate = wifi.get("tx_rate_mbps")
+            rows.append(("Link rate", (f"tx {fmt_num(rate, 0)} Mbps" + (f", rx {fmt_num(wifi.get('rx_rate_mbps'), 0)} Mbps" if wifi.get("rx_rate_mbps") else "")) if rate else na, TEXT))
+            rows.append(("Local IP", v(wifi.get("ip")) + (f"/{wifi.get('prefix')}" if wifi.get("ip") and wifi.get("prefix") else ""), TEXT))
+            rows.append(("Gateway", v(wifi.get("gateway")), TEXT))
+            rows.append(("Router DNS (DHCP)", v(", ".join(wifi.get("dhcp_dns") or [])), TEXT))
+            rows.append(("IPv6", v(", ".join(wifi.get("ipv6") or [])), TEXT))
+            rows.append(("Public IP (last test)", v(speed.get("public_ip")), TEXT))
 
         rows.append(("CELLULAR (FROM ROUTER)", "", AMBER))
         if router and not router.get("error") and any(k.startswith("cell_") and router.get(k) is not None for k in router):
@@ -618,6 +677,9 @@ class Renderer:
             y += self.ROW_H
         by0, by1 = 262, 312
         on_home = snap.get("active_target") == "home"
+        if snap.get("link_mode") == "ethernet":
+            # over Ethernet the button only moves the Wi-Fi radio; show where it is now
+            on_home = bool(self.home_ssid) and (snap.get("mgmt_wifi") or {}).get("ssid") == self.home_ssid
         same_net = bool(self.home_ssid) and self.home_ssid == self.ssid
         self._button(draw, hits, (8, by0, 92, by1), "Back", "back", BTN_NEUTRAL, 16)
         self._button(draw, hits, (100, by0, 172, by1), "Up", "page_up", BTN_NEUTRAL, 16)

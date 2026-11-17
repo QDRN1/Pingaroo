@@ -20,6 +20,12 @@ class Backend:
                 ssid: str | None = None, profile: str | None = None) -> tuple[bool, WifiState, str]:
         raise NotImplementedError
 
+    def ethernet_state(self, interface: str) -> WifiState:
+        raise NotImplementedError
+
+    def connect_ethernet(self, cfg: dict, interface: str, cancel: CancelToken) -> tuple[bool, WifiState, str]:
+        raise NotImplementedError
+
     def route_check(self, interface: str, targets: list[str], want_ipv6: bool) -> tuple[bool, str]:
         raise NotImplementedError
 
@@ -53,8 +59,14 @@ class RealBackend(Backend):
     def connect(self, cfg, interface, cancel, ssid=None, profile=None):
         return wifi.connect(cfg, interface, cancel, ssid=ssid, profile=profile)
 
+    def ethernet_state(self, interface: str) -> WifiState:
+        return netinfo.ethernet_state(interface)
+
+    def connect_ethernet(self, cfg, interface, cancel):
+        return wifi.connect_ethernet(cfg, interface, cancel)
+
     def route_check(self, interface: str, targets: list[str], want_ipv6: bool) -> tuple[bool, str]:
-        """The kernel's default path for test traffic must be the Wi-Fi interface.
+        """The kernel's default path for test traffic must be the test interface.
         This is what the speedtest child process (and its DNS lookups) will use."""
         problems: list[str] = []
         checked = 0

@@ -126,7 +126,8 @@ def write_xlsx(rows: list[dict], path: str, title: str = "Pingaroo results") -> 
     ws3.append(["Pingaroo export", time.strftime("%Y-%m-%d %H:%M:%S %z")])
     ws3.append(["Rows", len(rows)])
     ws3.append(["Units", "Mbps = megabits per second; latency/jitter ms; RSRP/RSRQ dBm/dB; signal_dbm is the Pi's Wi-Fi link, not cellular"])
-    ws3.append(["Note", "Measured throughput includes the Pi-to-router Wi-Fi link"])
+    ws3.append(["Note", "Measured throughput includes the Pi-to-router link. Rows with band = Ethernet were measured "
+                        "over a cable (interface is the wired port); all other rows include the Pi's own Wi-Fi"])
     ws3.append(["Loaded latency", "download_latency_ms / upload_latency_ms are the speed test's latency while the link is busy "
                                   "(interquartile mean); latency_ms is the idle figure"])
     ws3.append(["Gateway counters", "cell_month_*_kb are the gateway's monthly counters, believed to be kilobytes (not documented); "

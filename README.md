@@ -21,7 +21,7 @@ kernel framebuffer and reads touches from evdev.
 6. Reachability failed: record `CONNECTIVITY_FAILED` with per-probe diagnostics.
 7. One Ookla speed test with structured output, 180 s hard cap, interface re-checked
    before and after.
-8. Write a CSV row and JSONL events. Statuses: `SUCCESS`, `WIFI_FAILED`, `ROUTE_FAILED`,
+8. Write a CSV row and JSONL events. Statuses: `SUCCESS`, `WIFI_FAILED`, `ETHERNET_FAILED`, `ROUTE_FAILED`,
    `CONNECTIVITY_FAILED`, `SPEEDTEST_FAILED`, `SPEEDTEST_TIMEOUT`, `INTERRUPTED`.
 9. Wait exactly 300 s from the end of the attempt, then start the next cycle.
 

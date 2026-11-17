@@ -16,7 +16,7 @@ from PIL import Image
 from . import __version__, clock, config as config_mod
 from .backend import RealBackend
 from .display import ConsoleGuard, Framebuffer, HeadlessFramebuffer, console_on_framebuffer, pick_framebuffer
-from .netinfo import pick_interface
+from .netinfo import link_mode, pick_ethernet_interface, pick_interface, pick_test_interface
 from .storage import StateFile, Storage
 from .touch import Calibration, TouchEvent, TouchReader, find_touch_device
 from .ui import Renderer
@@ -251,8 +251,7 @@ class UIController:
         elif action == "page_down":
             self.page = min(self.pages - 1, self.page + 1)
         elif action == "switch_wifi":
-            target = "test" if self.worker.state.active_target == "home" else "home"
-            self.worker.switch_network(target)
+            self.worker.switch_network(self.worker.next_switch_target())
         elif action == "next_label":
             current = self.worker.state.label_override or self.worker.state.label
             if current in self.labels:
@@ -367,12 +366,15 @@ def run_app(cfg: dict, headless: bool = False, png_path: str | None = None) -> i
     check_orphaned_cycle(storage)
 
     state = WorkerState()
-    state.interface, state.interface_note = pick_interface(cfg["wifi"]["interface"])
+    state.interface, state.interface_note = pick_test_interface(cfg)
+    state.wifi_interface = pick_interface(cfg["wifi"]["interface"])[0]
+    state.eth_interface = pick_ethernet_interface(cfg["link"]["ethernet_interface"])[0]
     backend = RealBackend()
     state.speedtest_version = backend.speedtest_version(cfg)
     state.clock_synced = clock.clock_synced()
     worker = Worker(cfg, backend, storage, state)
     storage.write_event("app_start", version=__version__, config=cfg.get("_path"), interface=state.interface,
+                        link_mode=link_mode(cfg),
                         interface_note=state.interface_note, speedtest_version=state.speedtest_version,
                         clock_synced=state.clock_synced, autostart=cfg["app"]["autostart"], headless=headless)
     worker.start()

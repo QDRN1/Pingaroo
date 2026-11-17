@@ -53,6 +53,7 @@ shown in Details; below `low_disk_mb` (100 MB) a warning appears.
 |---|---|---|
 | `SUCCESS` | Wi-Fi, route, reachability and speed test all completed | success |
 | `WIFI_FAILED` | Not associated with the SSID or no IPv4 after one bounded attempt | failure |
+| `ETHERNET_FAILED` | Only with `link.mode = "ethernet"`: no cable, or no IPv4 on the wired port after one bounded attempt | failure |
 | `ROUTE_FAILED` | Default path is not the Wi-Fi, or the connection changed around the speed test | failure |
 | `CONNECTIVITY_FAILED` | No HTTPS success through the Wi-Fi (captive portal, DNS, TLS, timeout) | failure |
 | `SPEEDTEST_FAILED` | Tool error, malformed output, pinned server unavailable | failure |

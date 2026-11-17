@@ -31,6 +31,17 @@ DEFAULTS: dict[str, Any] = {
         "connect_timeout_seconds": 45,
         "poll_seconds": 1.0,
     },
+    # Which link carries the test traffic.
+    #   "auto" (default): Wi-Fi, unless a cable from the Pi's Ethernet port to the gateway
+    #          is live; then that cycle runs over the cable.  Checked at every cycle.
+    #   "wifi": always the Wi-Fi radio.   "ethernet": always the cable.
+    # Over the cable the Pi's own Wi-Fi is out of the measurement, and the radio is left
+    # alone: it can stay on either network, only as a way to reach the Pi.
+    "link": {
+        "mode": "auto",
+        "ethernet_interface": "",     # empty = first wired port
+        "connect_timeout_seconds": 30,
+    },
     "connectivity": {
         "ping_targets": ["1.1.1.1", "8.8.8.8"],
         "ping_count": 4,
@@ -132,6 +143,7 @@ DEFAULTS: dict[str, Any] = {
 STATUSES = (
     "SUCCESS",
     "WIFI_FAILED",
+    "ETHERNET_FAILED",
     "ROUTE_FAILED",
     "CONNECTIVITY_FAILED",
     "SPEEDTEST_FAILED",
@@ -200,6 +212,11 @@ def validate(cfg: dict) -> None:
     _require(isinstance(wifi["connection_name"], str) and wifi["connection_name"],
              "wifi.connection_name must be set")
     _require(wifi["connect_timeout_seconds"] > 0, "wifi.connect_timeout_seconds must be > 0")
+
+    link = cfg["link"]
+    _require(link["mode"] in ("auto", "wifi", "ethernet"), "link.mode must be auto, wifi or ethernet")
+    _require(isinstance(link["ethernet_interface"], str), "link.ethernet_interface must be a string")
+    _require(link["connect_timeout_seconds"] > 0, "link.connect_timeout_seconds must be > 0")
 
     con = cfg["connectivity"]
     _require(isinstance(con["ping_targets"], list) and 1 <= len(con["ping_targets"]) <= 4,

@@ -8,9 +8,10 @@ import os
 import threading
 import time
 import uuid
+from urllib.parse import urlsplit
 from dataclasses import asdict, dataclass, field
 
-from . import clock, config as config_mod
+from . import clock, config as config_mod, netinfo
 from .backend import Backend
 from .netinfo import WifiState
 from .shell import CancelToken
@@ -93,6 +94,16 @@ class WorkerState:
         self.router_login = "unknown"
         self.router_login_mono: float | None = None
         self.router_login_detail = ""
+        # link_mode is the link in use right now.  "wifi": the Wi-Fi radio carries the
+        # test.  "ethernet": the wired port does, and the Wi-Fi radio (wifi_interface /
+        # mgmt_wifi) is only a way to reach the Pi.  link_setting is what the config asks
+        # for: "auto" picks per cycle, "wifi" / "ethernet" pin it.
+        self.link_mode = "wifi"
+        self.link_setting = "auto"
+        self.link_note = ""
+        self.wifi_interface = ""
+        self.eth_interface = ""
+        self.mgmt_wifi: WifiState | None = None
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -131,6 +142,10 @@ class WorkerState:
                 "router_login": self.router_login,
                 "router_login_age_s": (now - self.router_login_mono) if self.router_login_mono is not None else None,
                 "router_login_detail": self.router_login_detail,
+                "link_mode": self.link_mode,
+                "link_setting": self.link_setting,
+                "link_note": self.link_note,
+                "mgmt_wifi": self.mgmt_wifi.to_dict() if self.mgmt_wifi else None,
             }
 
 
@@ -146,8 +161,65 @@ class Worker:
         self._thread = threading.Thread(target=self._main, name="pingaroo-worker", daemon=True)
         self._start_lock = threading.Lock()
         self.cycle_running = False
+        self.link_setting = netinfo.link_mode(cfg)
+        self.state.link_setting = self.link_setting
+        # state.interface is the interface under test; keep the per-link names filled in
+        if self.link_setting == "ethernet":
+            self.state.link_mode = "ethernet"
+            self.state.eth_interface = self.state.eth_interface or self.state.interface
+        else:
+            self.state.wifi_interface = self.state.wifi_interface or self.state.interface
         self.state.label = config_mod.read_label(cfg)
         self.state.interval_s = float(cfg["app"]["interval_seconds"])
+
+    # ------------------------------------------------------------------ link
+    @property
+    def ethernet(self) -> bool:
+        """Is the wired port the link in use right now?"""
+        return self.state.link_mode == "ethernet"
+
+    def _gateway_host(self) -> str:
+        rt = self.cfg["router"]
+        if rt["type"] == "none":
+            return ""
+        try:
+            return urlsplit(str(rt["base_url"])).hostname or ""
+        except ValueError:
+            return ""
+
+    def _select_link(self) -> tuple[bool, str, str, WifiState | None]:
+        """Which link should carry the next cycle: (ethernet, interface, note, eth_state).
+        "auto" uses the cable only when it is live and leads to the gateway under test,
+        so a cable into some other network never produces rows under the test label."""
+        st = self.state
+        note = ""
+        eth_state: WifiState | None = None
+        if self.link_setting == "ethernet":
+            use = True
+        elif self.link_setting == "wifi" or not st.eth_interface:
+            use = False
+        else:
+            use = False
+            eth_state = self.backend.ethernet_state(st.eth_interface)
+            if eth_state.connected:
+                want = self._gateway_host()
+                if want and eth_state.gateway != want:
+                    note = f"cable is on another network (gateway {eth_state.gateway or 'none'}), not {want}"
+                else:
+                    use = True
+            elif eth_state.carrier:
+                note = "cable connected, no address yet"
+        return use, (st.eth_interface if use else st.wifi_interface), note, eth_state
+
+    def _apply_link(self, use: bool, iface: str, note: str) -> None:
+        with self.state.lock:
+            changed = (self.state.link_mode == "ethernet") != use
+            self.state.link_mode = "ethernet" if use else "wifi"
+            self.state.interface = iface
+            self.state.link_note = note
+        if changed:
+            self.storage.write_event("link_change", link="ethernet" if use else "wifi", interface=iface,
+                                     setting=self.link_setting)
 
     # ------------------------------------------------------------- public API
     def start(self) -> None:
@@ -160,15 +232,22 @@ class Worker:
         """Begin a new session and run the first cycle immediately.  Returns False if
         already running (duplicate start)."""
         with self._start_lock:
+            with self.state.lock:
+                if self.state.running:
+                    return False
+            self._apply_link(*self._select_link()[:3])
             # Test whatever network the Pi is on right now: if it is associated to the
             # home SSID, run against home; if to the test SSID, run against test.
+            # Over Ethernet the cable decides what is tested, so the target is always "test".
             w = self.cfg["wifi"]
             try:
-                cur = self.backend.wifi_state(self.state.interface, w["ssid"]).ssid
+                cur = "" if self.ethernet else self.backend.wifi_state(self.state.interface, w["ssid"]).ssid
             except Exception:
                 cur = ""
             with self.state.lock:
-                if cur and w.get("home_ssid") and cur == w["home_ssid"]:
+                if self.ethernet:
+                    self.state.active_target = "test"
+                elif cur and w.get("home_ssid") and cur == w["home_ssid"]:
                     self.state.active_target = "home"
                 elif cur and cur == w["ssid"]:
                     self.state.active_target = "test"
@@ -246,22 +325,31 @@ class Worker:
             with self.state.lock:
                 self.state.switch_note = "no home profile set (pingaroo wifi --home-current)"
             return False
+        # Over Ethernet the test path does not change: only the Wi-Fi radio moves, so the
+        # Pi can be reached from whichever network is handy.
+        eth = self.ethernet
+        radio = self.state.wifi_interface or ("" if eth else self.state.interface)
+        if not radio:
+            with self.state.lock:
+                self.state.switch_note = "no Wi-Fi interface to switch"
+            return False
         with self.state.lock:
             if self.state.switching:
                 return False
-            self.state.active_target = target
             self.state.switching = target
             self.state.switch_note = f"switching to {profile}"
-            # interrupt a wait so the next cycle starts on the new network promptly
-            if self.state.phase == Phase.WAITING and self.state.next_start_mono is not None:
-                self.state.next_start_mono = time.monotonic()
+            if not eth:
+                self.state.active_target = target
+                # interrupt a wait so the next cycle starts on the new network promptly
+                if self.state.phase == Phase.WAITING and self.state.next_start_mono is not None:
+                    self.state.next_start_mono = time.monotonic()
 
         def _go():
             try:
                 deadline = time.monotonic() + 12
                 while self.cycle_running and time.monotonic() < deadline:
                     time.sleep(0.2)
-                ok, err = self.backend.activate_profile(profile, self.state.interface,
+                ok, err = self.backend.activate_profile(profile, radio,
                                                         float(wcfg["connect_timeout_seconds"]))
                 self.storage.write_event("network_switch", target=target, profile=profile, ok=ok, error=err)
                 with self.state.lock:
@@ -277,11 +365,42 @@ class Worker:
         threading.Thread(target=_go, name="pingaroo-switch", daemon=True).start()
         return True
 
+    def next_switch_target(self) -> str:
+        """Which network the Home/Test Wi-Fi button moves to next."""
+        if self.ethernet:
+            mgmt = self.state.mgmt_wifi
+            home = self.cfg["wifi"].get("home_ssid")
+            return "test" if (mgmt and home and mgmt.ssid == home) else "home"
+        return "test" if self.state.active_target == "home" else "home"
+
+    def _link_state(self, ssid: str, eth: bool | None = None, iface: str | None = None) -> WifiState:
+        """State of the link under test: the wired port or the Wi-Fi radio."""
+        eth = self.ethernet if eth is None else eth
+        iface = self.state.interface if iface is None else iface
+        if eth:
+            return self.backend.ethernet_state(iface)
+        return self.backend.wifi_state(iface, ssid)
+
     def refresh_wifi(self) -> WifiState:
-        st = self.backend.wifi_state(self.state.interface, self.cfg["wifi"]["ssid"])
+        """Refresh what the screen shows about the link.  Between cycles this is also
+        where "auto" notices a cable going in or out; a running cycle keeps its link."""
+        eth_state = None
+        if not self.cycle_running:
+            use, iface, note, eth_state = self._select_link()
+            if not self.cycle_running:
+                self._apply_link(use, iface, note)
+        eth = self.ethernet
+        st = eth_state if (eth and eth_state is not None) else self._link_state(self.cfg["wifi"]["ssid"])
+        mgmt = None
+        if eth and self.state.wifi_interface:
+            try:
+                mgmt = self.backend.wifi_state(self.state.wifi_interface, self.cfg["wifi"]["ssid"])
+            except Exception:
+                mgmt = None
         with self.state.lock:
             self.state.wifi = st
             self.state.wifi_time_mono = time.monotonic()
+            self.state.mgmt_wifi = mgmt
         return st
 
     # ------------------------------------------------------------ main loop
@@ -357,8 +476,12 @@ class Worker:
         """Run one attempt.  Returns the monotonic time the attempt ended."""
         st = self.state
         cfg = self.cfg
+        # The link is chosen once here and held for the whole cycle, so a row is never
+        # measured over a different link than it records.
+        self.cycle_running = True
+        eth, iface, link_note, _ = self._select_link()
+        self._apply_link(eth, iface, link_note)
         ssid, profile = self.active_net()
-        iface = st.interface
         t0 = time.monotonic()
         start_iso = clock.iso()
         with st.lock:
@@ -366,13 +489,12 @@ class Worker:
             session.cycles += 1
             cycle_id = f"{session.id}-{session.cycles:04d}"
             st.current_cycle_id = cycle_id
-            target = st.active_target
+            target = "test" if eth else st.active_target
             # On the home network there is no APN under test: the row says Home, not the test label.
             label = "Home" if target == "home" else (st.label_override or config_mod.read_label(cfg))
             st.label = label
             st.clock_synced = clock.clock_synced()
             st.last_error = ""
-        self.cycle_running = True
         row: dict = {
             "session_id": session.id, "cycle_id": cycle_id, "label": label, "target": target,
             "start_time": start_iso, "status": "", "failed_stage": "", "error": "",
@@ -429,26 +551,32 @@ class Worker:
         def interrupted(stage: str, speed: dict | None = None) -> float:
             return finish("INTERRUPTED", stage, "stopped by user during " + stage, speed)
 
-        # ---- stage 1-3: Wi-Fi association + IP
+        # ---- stage 1-3: the link under test (Wi-Fi association, or the cable) + IP
+        link_stage = "ethernet" if eth else "wifi"
+        link_name = "Ethernet" if eth else "Wi-Fi"
         self._set_phase(Phase.CONNECTING)
-        wstate = self.backend.wifi_state(iface, ssid)
+        wstate = self._link_state(ssid, eth, iface)
         self._store_wifi(wstate)
         if not wstate.connected:
             if self.cancel.cancelled:
-                return interrupted("wifi")
-            ok, wstate, err = self.backend.connect(cfg, iface, self.cancel, ssid=ssid, profile=profile)
+                return interrupted(link_stage)
+            if eth:
+                ok, wstate, err = self.backend.connect_ethernet(cfg, iface, self.cancel)
+            else:
+                ok, wstate, err = self.backend.connect(cfg, iface, self.cancel, ssid=ssid, profile=profile)
             self._store_wifi(wstate)
             if self.cancel.cancelled:
-                return interrupted("wifi")
+                return interrupted(link_stage)
             if not ok:
                 detail["wifi"] = wstate.to_dict()
-                self.storage.write_event("wifi_result", cycle_id=cycle_id, ok=False, error=err)
+                self.storage.write_event("wifi_result", cycle_id=cycle_id, ok=False, error=err, link=link_stage)
                 self._fill_network(row, wstate)
-                return finish("WIFI_FAILED", "wifi", err or "Wi-Fi connection failed")
+                return finish("ETHERNET_FAILED" if eth else "WIFI_FAILED", link_stage,
+                              err or f"{link_name} connection failed")
         self._fill_network(row, wstate)
         detail["wifi"] = wstate.to_dict()
         self.storage.write_event("wifi_result", cycle_id=cycle_id, ok=True, ssid=wstate.ssid,
-                                 ip=wstate.ip, bssid=wstate.bssid, signal_dbm=wstate.signal_dbm)
+                                 ip=wstate.ip, bssid=wstate.bssid, signal_dbm=wstate.signal_dbm, link=link_stage)
 
         # ---- router / cellular data (only if an adapter is configured)
         if cfg["router"]["type"] != "none":
@@ -461,7 +589,7 @@ class Worker:
                                      error=rinfo.get("error", ""))
             self._note_router_login(rinfo, "n/a" if target == "home" else None)
 
-        # ---- route check: the default path for test traffic must be the Wi-Fi
+        # ---- route check: the default path for test traffic must be the link under test
         route_ok, route_err = self.backend.route_check(iface, list(cfg["connectivity"]["ping_targets"]),
                                                        bool(wstate.ipv6))
         detail["route"] = {"ok": route_ok, "error": route_err}
@@ -495,11 +623,12 @@ class Worker:
             return finish("SUCCESS", "", "")
 
         # ---- stage 6: speed test, with path re-checks around it
-        pre = self.backend.wifi_state(iface, ssid)
+        pre = self._link_state(ssid, eth, iface)
         self._store_wifi(pre)
         if not pre.connected or pre.ip != wstate.ip:
+            where = f"ip={pre.ip or 'none'}" if eth else f"ssid={pre.ssid or '-'}, ip={pre.ip or 'none'}"
             return finish("ROUTE_FAILED", "speedtest_precheck",
-                          f"Wi-Fi changed before speed test (ssid={pre.ssid or '-'}, ip={pre.ip or 'none'})")
+                          f"{link_name} changed before speed test ({where})")
         route_ok, route_err = self.backend.route_check(iface, list(cfg["connectivity"]["ping_targets"]),
                                                        bool(pre.ipv6))
         if not route_ok:
@@ -523,7 +652,7 @@ class Worker:
         raw = speed.pop("raw", None)
         detail["speedtest"] = speed
         detail["speedtest_raw"] = raw
-        post = self.backend.wifi_state(iface, ssid)
+        post = self._link_state(ssid, eth, iface)
         self._store_wifi(post)
         self._fill_speed(row, sres)
         with st.lock:
@@ -535,7 +664,7 @@ class Worker:
             return interrupted("speedtest", speed)
         changed = []
         if not post.connected:
-            changed.append("Wi-Fi dropped")
+            changed.append(f"{link_name} dropped")
         elif post.ip != wstate.ip:
             changed.append(f"IP changed {wstate.ip}->{post.ip}")
         if post.bssid and wstate.bssid and post.bssid != wstate.bssid:

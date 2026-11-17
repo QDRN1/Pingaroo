@@ -15,13 +15,14 @@ from tests.fakes import (FakeBackend, connected_state, disconnected_state, good_
 
 
 class WorkerHarness:
-    def __init__(self, backend: FakeBackend, cfg: dict | None = None):
+    def __init__(self, backend: FakeBackend, cfg: dict | None = None, eth_interface: str = ""):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.cfg = cfg or test_config()
         self.cfg["logging"]["directory"] = self.tmp.name
         self.storage = Storage(self.cfg)
         self.state = WorkerState()
         self.state.interface = "wlan0"
+        self.state.eth_interface = eth_interface
         self.worker = Worker(self.cfg, backend, self.storage, self.state)
         self.worker.start()
 

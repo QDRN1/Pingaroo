@@ -38,7 +38,7 @@ def cmd_once(args) -> int:
     """Run exactly one diagnostic cycle in the foreground, no UI, and print the row."""
     from .app import SingleInstance
     from .backend import RealBackend
-    from .netinfo import pick_interface
+    from .netinfo import link_mode, pick_ethernet_interface, pick_interface, pick_test_interface
     from .worker import Worker, WorkerState
     cfg = _cfg(args)
     lock = SingleInstance(os.path.join(cfg["logging"]["runtime_directory"], "lock"))
@@ -50,9 +50,11 @@ def cmd_once(args) -> int:
         storage = Storage(cfg)
         storage.ensure_directory()
         state = WorkerState()
-        state.interface, state.interface_note = pick_interface(cfg["wifi"]["interface"])
+        state.interface, state.interface_note = pick_test_interface(cfg)
+        state.wifi_interface = pick_interface(cfg["wifi"]["interface"])[0]
+        state.eth_interface = pick_ethernet_interface(cfg["link"]["ethernet_interface"])[0]
         if not state.interface:
-            print("no Wi-Fi interface found", file=sys.stderr)
+            print(f"no {'Ethernet' if link_mode(cfg) == 'ethernet' else 'Wi-Fi'} interface found", file=sys.stderr)
             return 1
         backend = RealBackend()
         state.speedtest_version = backend.speedtest_version(cfg)
@@ -105,8 +107,15 @@ def cmd_status(args) -> int:
     print(f"running:     {snap.get('running')}   phase: {snap.get('phase')}   worker alive: {snap.get('worker_alive')}")
     print(f"label:       {snap.get('label')}")
     w = snap.get("wifi") or {}
-    print(f"wifi:        {'connected' if w.get('connected') else 'not connected'}  ssid={w.get('ssid') or '-'} "
-          f"ip={w.get('ip') or 'none'} signal={w.get('signal_dbm')} dBm  iface={snap.get('interface')}")
+    if snap.get("link_mode") == "ethernet":
+        print(f"ethernet:    {'connected' if w.get('connected') else 'not connected'}  "
+              f"cable={'yes' if w.get('carrier') else 'no' if w.get('carrier') is False else '?'} "
+              f"ip={w.get('ip') or 'none'} speed={w.get('tx_rate_mbps') or '-'} Mbps  iface={snap.get('interface')}")
+        m = snap.get("mgmt_wifi") or {}
+        print(f"wifi (reach): ssid={m.get('ssid') or '-'} ip={m.get('ip') or 'none'} signal={m.get('signal_dbm')} dBm")
+    else:
+        print(f"wifi:        {'connected' if w.get('connected') else 'not connected'}  ssid={w.get('ssid') or '-'} "
+              f"ip={w.get('ip') or 'none'} signal={w.get('signal_dbm')} dBm  iface={snap.get('interface')}")
     i = snap.get("internet") or {}
     print(f"internet:    {i.get('ok')}  {i.get('summary')}  (checked {i.get('time_iso') or 'never'})")
     s = snap.get("session")
@@ -235,6 +244,50 @@ def cmd_interval(args) -> int:
         return 0
     rc = _set(args, "app", "interval_seconds", int(args.seconds))
     print("Restart the service to apply: sudo systemctl restart pingaroo")
+    return rc
+
+
+def cmd_link(args) -> int:
+    """Show or set which link carries the test traffic: auto, the Wi-Fi radio or the wired port."""
+    from . import netinfo
+    cfg = _cfg(args)
+    if args.mode is None:
+        mode = netinfo.link_mode(cfg)
+        print(f"link.mode = {mode}" + ("  (Wi-Fi, or the cable whenever it is live to the gateway)" if mode == "auto" else ""))
+        eth, note = netinfo.pick_ethernet_interface(cfg["link"]["ethernet_interface"])
+        live = False
+        if not eth:
+            print(f"ethernet port:  NONE ({note})")
+        else:
+            st = netinfo.ethernet_state(eth)
+            live = st.connected
+            cable = "connected" if st.carrier else "not connected" if st.carrier is False else "unknown"
+            print(f"ethernet port:  {eth} ({note})  cable: {cable}  ip: {st.ip or 'none'}  "
+                  f"gateway: {st.gateway or 'none'}  speed: {int(st.tx_rate_mbps) if st.tx_rate_mbps else '-'} Mbps")
+        snap = StateFile(cfg["logging"]["runtime_directory"]).read() or {}
+        if snap.get("link_mode"):
+            print(f"in use now:     {'Ethernet' if snap['link_mode'] == 'ethernet' else 'Wi-Fi'} ({snap.get('interface') or '-'})"
+                  + (f"  note: {snap['link_note']}" if snap.get("link_note") else ""))
+        if mode == "wifi" and live:
+            print("NOTE: the cable is live while link.mode is wifi. The Pi routes through the cable first,")
+            print("      so Wi-Fi cycles will stop with ROUTE_FAILED. Unplug the cable or use auto.")
+        return 0
+    mode = args.mode.lower()
+    if mode not in ("auto", "wifi", "ethernet"):
+        print("usage: pingaroo link [auto|wifi|ethernet]", file=sys.stderr)
+        return 2
+    rc = _set(args, "link", "mode", mode)
+    if mode == "auto":
+        print("Wi-Fi by default. A cycle runs over the cable whenever the Pi's Ethernet port is")
+        print("connected to a LAN port on the gateway; pull the cable and the next cycle is Wi-Fi again.")
+    elif mode == "ethernet":
+        print("Always the cable. With no cable the cycles are ETHERNET_FAILED; Wi-Fi is never used.")
+    else:
+        print("Always Wi-Fi. Keep the cable unplugged: with it connected the Pi routes through the")
+        print("cable first and Wi-Fi cycles stop with ROUTE_FAILED.")
+    print("Rows logged over the cable have interface = the wired port and band = Ethernet.")
+    print("Restart the service to apply: sudo systemctl restart pingaroo")
+    print("Then start the loop again:     sudo pingaroo start")
     return rc
 
 
@@ -805,6 +858,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("interval", help="show or set the completion-to-next-start interval in seconds")
     s.add_argument("seconds", nargs="?")
     s.set_defaults(func=cmd_interval)
+
+    s = sub.add_parser("link", help="show or set the link under test: auto (default), wifi or ethernet")
+    s.add_argument("mode", nargs="?")
+    s.set_defaults(func=cmd_link)
 
     s = sub.add_parser("server", help="show or set the speedtest server id ('auto' to unpin)")
     s.add_argument("server_id", nargs="?")
