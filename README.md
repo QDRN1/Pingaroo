@@ -254,7 +254,8 @@ does not alert.
 
 **Remote view.** `http://<pi address>:8080` shows the screen live in a browser on the same
 network, and a click on the page acts as a tap on the same spot. There is no login on that
-page; turn it off with `[remote] enabled = false`. Testing, logging and Wi-Fi are unaffected by sleep. If the panel
+page; turn it off with `[remote] enabled = false`. To open it from another network without
+switching Wi-Fi, see `docs/CLOUDFLARE.md` (Cloudflare Tunnel with an Access sign-in in front). Testing, logging and Wi-Fi are unaffected by sleep. If the panel
 has no backlight control, the screen is driven black but the backlight stays lit.
 
 ## After a Crash or Power Loss
